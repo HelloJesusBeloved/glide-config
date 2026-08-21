@@ -58,6 +58,7 @@ function safeDel(
 }
 
 
+
 //Custom Keybinds and Commands
 
 //1. Search highlighted text with duckduckgo in normal and visual mode
@@ -376,7 +377,6 @@ glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle");
 safeDel("normal", "<A-p>");
 
 
-
 //Map Leader s to Shift F10 to open the browser context/autocorrect spelling menu
 //Note: Only works on my Keycron C3 Pro, where I have F3 mapped to the macro Shift + F10, since <S-F10> doesn't work in glide for some reason
 //Note to the Note: When the Glide is sent F3 from glide.keys.send, it doesn't count the Keycrons keybindings, since the physical keyboard isn't actually whats sending the keys qd.
@@ -387,11 +387,12 @@ safeDel("normal", "<A-p>");
 //    });
 
 
+
 //Per Website Settings
 
 //1. Websites to Ignore
 
-//A. Turn on ignore mode in kasm
+//A. Turn on ignore mode 
 //Source https://glide-browser.app/cookbook
 glide.autocmds.create("UrlEnter", {
   hostname: "10.0.1.108",
@@ -429,9 +430,8 @@ glide.autocmds.create(
   });
 
 
-
 //──────────────────────────────────────────────────────────────
-// Outlook Auto Categories Engine
+// Outlook Auto Add Categories Engine
 //──────────────────────────────────────────────────────────────
 
 const outlookCategories: Record<string, string[]> = {
@@ -461,7 +461,6 @@ const outlookCategories: Record<string, string[]> = {
     ],
 
 };
-
 
 
 glide.keymaps.set("normal", "<S-!>", async () => {
@@ -502,6 +501,7 @@ glide.keymaps.set("normal", "<S-!>", async () => {
 
 });
 
+
 //Let Shift + 2 clear two categorys from an email
   glide.keymaps.set("normal", "<S-@>", async () => {
     await glide.excmds.execute("mode_change insert");
@@ -524,6 +524,7 @@ glide.keymaps.set("normal", "<S-!>", async () => {
 	safeDel("normal", "<S-@>");
   };
 });
+
 
 //B. ChatGPT
 //Aria Labels:
@@ -555,15 +556,16 @@ glide.autocmds.create("UrlEnter", {
 
 
 
-
-
-
-
-
+//Applications
 
 
 //──────────────────────────────────────────────────────────────
 // Glide Snippet Engine 2.0
+// Keyword Expansion - type qew<space> -> Expands to crying emoji
+// Note: Does not work everywhere yet, if it doesn't work use 
+// Snippet Engine 1.0 (Mapped to <C-e> (Ctrl + e) in insert mode
+// then qew<space>
+//
 // Configuration
 //──────────────────────────────────────────────────────────────
 
@@ -575,38 +577,38 @@ const SnippetEngine = {
         qc: "😁",
         qcc: "🥳",
 
-		qa: "🫨",
+	qa: "🫨",
 
-		qs: "🙂",
-		qsb: "☺️",
-		qsbb: "😊",
+	qs: "🙂",
+	qsb: "☺️",
+	qsbb: "😊",
 
         qt: "👍",
 
-		qhaa: "🫡",
-		qhaf: "🤦‍♂️",
+	qhaa: "🫡",
+	qhaf: "🤦‍♂️",
 
         qew: "🥹",
-		qes: "🤩",
+	qes: "🤩",
 
         ql: "😂",
 
         qd: "😭",
 
-		qco: "😎",
+	qco: "😎",
 
-		qof: "😮‍💨",
-		qow: "😱",
+	qof: "😮‍💨",
+	qow: "😱",
 
-		qn: "🙂‍↕️",
+	qn: "🙂‍↕️",
 
-		qtm: "🧐",
-		qth: "🤔",
+	qtm: "🧐",
+	qth: "🤔",
 
-		qbox: "◽",
+	qbox: "◽",
 
-		qh: "❤️",
-		qhl: "🥰",
+	qh: "❤️",
+	qhl: "🥰",
 
     },
 
@@ -632,6 +634,7 @@ const SnippetEngine = {
 };
 
 
+
 //──────────────────────────────────────────────────────────────
 // Initialization
 //──────────────────────────────────────────────────────────────
@@ -649,13 +652,6 @@ SnippetEngine.maxSnippetLength =
     Math.max(
         ...SnippetEngine.snippetKeys.map(k => k.length),
     );
-
-
-
-
-
-
-
 
 
 
@@ -704,10 +700,6 @@ async function replaceInput(
     );
 
 }
-
-
-
-
 
 
 //2.
@@ -778,7 +770,6 @@ async function replaceContentEditable(
 
 
 
-
 //──────────────────────────────────────────────────────────────
 // Glide Snippet Engine 2.0
 // Dispatcher
@@ -837,12 +828,6 @@ async function replacePreviousText(
 
 
 
-
-
-
-
-
-
 //──────────────────────────────────────────────────────────────
 // Glide Snippet Engine 2.0
 // Buffer Helpers
@@ -883,12 +868,6 @@ function isTriggerKey(key: string): boolean {
     return SnippetEngine.triggerKeySet.has(key);
 
 }
-
-
-
-
-
-
 
 
 
@@ -947,19 +926,6 @@ async function runSnippetEngine() {
 }
 
 runSnippetEngine();
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
