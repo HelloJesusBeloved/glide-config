@@ -18,6 +18,9 @@
 
 glide.o.hint_size = "14px";
 
+//Imports (simply so I can add configuration I don't want in the repo, does nothing unless you have "local.ts" in the same folder as your glide.ts)
+glide.include("local.ts").catch(() => {});
+
 //Functions
 
 //1. clickElement - The function that raps the tab_id: number, selector: string for mapping keybinds to website elements
