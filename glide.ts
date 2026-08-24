@@ -580,38 +580,38 @@ const SnippetEngine = {
         qc: "😁",
         qcc: "🥳",
 
-	qa: "🫨",
+        qa: "🫨",
 
-	qs: "🙂",
-	qsb: "☺️",
-	qsbb: "😊",
+	      qs: "🙂",
+	      qsb: "☺️",
+	      qsbb: "😊",
 
         qt: "👍",
 
-	qhaa: "🫡",
-	qhaf: "🤦‍♂️",
+	      qhaa: "🫡",
+	      qhaf: "🤦‍♂️",
 
         qew: "🥹",
-	qes: "🤩",
+	      qes: "🤩",
 
         ql: "😂",
 
         qd: "😭",
 
-	qco: "😎",
+	      qco: "😎",
 
-	qof: "😮‍💨",
-	qow: "😱",
+	      qof: "😮‍💨",
+	      qow: "😱",
 
-	qn: "🙂‍↕️",
+	      qn: "🙂‍↕️",
 
-	qtm: "🧐",
-	qth: "🤔",
+	      qtm: "🧐",
+	      qth: "🤔",
 
-	qbox: "◽",
+	      qbox: "◽",
 
-	qh: "❤️",
-	qhl: "🥰",
+	      qh: "❤️",
+	      qhl: "🥰",
 
     },
 
