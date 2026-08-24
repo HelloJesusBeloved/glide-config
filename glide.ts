@@ -646,6 +646,7 @@ const SnippetEngine = {
         qh3: "❤️❤️❤️",
         qhaa: "🫡",
         qhac: "👏",
+		qhach: "🤌",
         qhad: "👇",
         qhaf: "👊",
         qhah: "🫶",
