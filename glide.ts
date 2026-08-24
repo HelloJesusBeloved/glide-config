@@ -437,18 +437,20 @@ glide.autocmds.create(
 // Outlook Auto Add Categories Engine
 //──────────────────────────────────────────────────────────────
 
+// Set order tags are applied relative to their structure in the string
+const reverse = false;
+
 const outlookCategories: Record<string, string[]> = {
 
     // Spam
     s: [
         "Not Phishing",
         "spam",
-
     ],
 
     // KnowBe4
     k: [
-		"Not Phishing",
+        "Not Phishing",
         "KnowBe4",
     ],
 
@@ -458,13 +460,12 @@ const outlookCategories: Record<string, string[]> = {
         "Fairmount",
     ],
 
-	// Not Phishing
+    // Not Phishing
     n: [
-		"Not Phishing",
+        "Not Phishing",
     ],
 
 };
-
 
 glide.keymaps.set("normal", "<S-!>", async () => {
 
@@ -484,18 +485,26 @@ glide.keymaps.set("normal", "<S-!>", async () => {
     await glide.keys.send("q");
     await glide.keys.send("c");
 
-	await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Choose the order in which the tags will be added.
+    const tagsToAdd = reverse
+        ? [...tags].reverse()
+        : tags;
 
     // Add every tag.
-    for (const tag of [...tags].reverse()) {
+    for (let i = 0; i < tagsToAdd.length; i++) {
+
+        const tag = tagsToAdd[i];
 
         await glide.keys.send(tag);
         await glide.keys.send("<Enter>");
 
         // If there are more tags to enter,
         // clear the search box.
-        if (tag !== tags[0]) {
-            await glide.keys.send("<C-Backspace>");
+        if (i < tagsToAdd.length - 1) {
+			await glide.keys.send("<C-a>");
+			await glide.keys.send("<Backspace>");
         }
 
     }
