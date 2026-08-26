@@ -393,17 +393,32 @@ safeDel("normal", "<A-p>");
 
 //Per Website Settings
 
+
 //1. Websites to Ignore
 
-//A. Turn on ignore mode 
-//Source https://glide-browser.app/cookbook
-glide.autocmds.create("UrlEnter", {
-  hostname: "10.0.1.108",
-},
-  async () => {
-  await glide.excmds.execute("mode_change ignore");
-  return () => glide.excmds.execute("mode_change normal");
-});
+const ignoreSites: string[] = [
+
+    "10.0.1.108",
+
+    "vim-editor-online.vercel.app",
+];
+
+// Turn on ignore mode for matching sites.
+glide.autocmds.create(
+    "UrlEnter",
+    new RegExp(
+        ignoreSites
+            .map(site => site.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join("|")
+    ),
+    async () => {
+
+        await glide.excmds.execute("mode_change ignore");
+
+        return () => glide.excmds.execute("mode_change normal");
+
+    },
+);
 
 
 //2. Custom Keybinds
