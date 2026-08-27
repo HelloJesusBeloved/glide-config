@@ -421,6 +421,37 @@ glide.autocmds.create(
 );
 
 
+//2. Websites to enter insert mode when first visited
+
+const insertSites: string[] = [
+
+    "app.super-productivity.com",
+
+];
+
+// Automatically enter Insert mode on these sites.
+glide.autocmds.create(
+    "UrlEnter",
+    new RegExp(
+        "^https?://([^/]*\\.)?(" +
+        insertSites
+            .map(site =>
+                site.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            )
+            .join("|") +
+        ")(/|:|$)"
+    ),
+    async () => {
+
+        await glide.excmds.execute("mode_change insert");
+
+        return () =>
+            glide.excmds.execute("mode_change normal");
+
+    }
+);
+
+
 //2. Custom Keybinds
 
 //A. Outlook (outlook.cloud.microsoft, outlook.office.com)
