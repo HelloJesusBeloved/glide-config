@@ -399,6 +399,7 @@ safeDel("normal", "<A-p>");
 const ignoreSites: string[] = [
 
     "10.0.1.108",
+    "100.124.253.95",
 
     "vim-editor-online.vercel.app",
 ];
