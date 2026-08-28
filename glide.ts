@@ -426,6 +426,7 @@ glide.autocmds.create(
 const insertSites: string[] = [
 
     "app.super-productivity.com",
+    "youtube.com",
 
 ];
 
