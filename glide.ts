@@ -128,7 +128,7 @@ glide.excmds.create(
 
 
 //4. Hint Tabs, Tab Groups, and the New Tab button with <leader>n
-//Source: ChatGPT
+//Source: ChatGPT and Me
 glide.keymaps.set("normal", "<leader>n", () => {
     glide.hints.show({
         location: "browser-ui",
@@ -376,9 +376,8 @@ glide.keymaps.set("normal", "yl", "url_yank");
 
 //Map <leader> + p in normal mode to toggle pin tab
 //Source: Me
-glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle");
 safeDel("normal", "<A-p>");
-
+glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle");
 
 //Map Leader s to Shift F10 to open the browser context/autocorrect spelling menu
 //Note: Only works on my Keycron C3 Pro, where I have F3 mapped to the macro Shift + F10, since <S-F10> doesn't work in glide for some reason
@@ -388,6 +387,13 @@ safeDel("normal", "<A-p>");
 //    glide.keymaps.set("normal", "<leader>s", async () => {
 //      await glide.keys.send("<Apps>");
 //    });
+
+//Map Shift + u to Ctrl + z in normal mode
+//For when simple u in normal mode doesn't undo
+  glide.keymaps.set("normal", "U", async () => {
+    await glide.keys.send("<C-z>");
+  });
+
 
 
 
