@@ -440,6 +440,8 @@ const ignoreSites: string[] = [
     "100.124.253.95",
 
     "vim-editor-online.vercel.app",
+	
+	"console.tailscale.com/admin/machines/ssh-reauth-complete"
 ];
 
 // Turn on ignore mode for matching sites.
