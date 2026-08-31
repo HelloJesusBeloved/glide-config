@@ -331,6 +331,39 @@ async function focusLargestScrollable(
 }
 
 
+//Search in a text field containing someone's first and last name for there full name, just their first and just their last
+  glide.keymaps.set("normal", "<S-n>", async () => {
+	const delay = 3000;
+	
+	await glide.excmds.execute("mode_change insert");
+
+	await glide.keys.send("<C-a>");
+	await glide.keys.send("<C-c>");
+	await glide.keys.send("<Right>");
+
+	
+    await glide.keys.send("<Enter>");
+	await new Promise(resolve => setTimeout(resolve, delay));
+	
+    await glide.keys.send("<C-Backspace>");
+	await glide.keys.send("<Backspace>");
+	await glide.keys.send("<Enter>");
+	await new Promise(resolve => setTimeout(resolve, delay));
+	
+	await glide.keys.send("<C-Backspace>");
+	await glide.keys.send("<C-v>");
+	await glide.keys.send("<C-Left>");
+	await glide.keys.send("<C-Backspace>");
+	await glide.keys.send("<Enter>");
+	await new Promise(resolve => setTimeout(resolve, delay));
+	
+	await glide.keys.send("<C-a>");
+	await glide.keys.send("<C-v>");
+	await glide.keys.send("<Enter>");
+
+  });
+
+
 
 //General Keybind Mapping/Re-mapping
 
@@ -401,7 +434,6 @@ glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle");
 
 
 //1. Websites to Ignore
-
 const ignoreSites: string[] = [
 
     "10.0.1.108",
@@ -429,7 +461,6 @@ glide.autocmds.create(
 
 
 //2. Websites to enter insert mode when first visited
-
 const insertSites: string[] = [
 
     "app.super-productivity.com",
