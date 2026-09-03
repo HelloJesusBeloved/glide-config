@@ -60,6 +60,24 @@ function safeDel(
     }
 }
 
+// 3. Outlook Safelinks Decoder that checks the SafeLinks hostname and returns the decoded "url" parameter.
+// Based on/Inspired by the SafeLink decoder implementation from sharevb/it-tools,
+// originally forked from CorentinTh/it-tools.
+// https://github.com/sharevb/it-tools/blob/chore/all-my-stuffs/src/tools/safelink-decoder/safelink-decoder.service.ts
+//Source: ChatGPT
+function decodeSafeLinksURL(safeLinksUrl: string): string | null {
+    try {
+        const url = new URL(safeLinksUrl);
+
+        if (!url.hostname.toLowerCase().endsWith(".safelinks.protection.outlook.com")) {
+            return null;
+        }
+
+        return url.searchParams.get("url");
+    } catch {
+        return null;
+    }
+}
 
 
 //Custom Keybinds and Commands
@@ -331,7 +349,8 @@ async function focusLargestScrollable(
 }
 
 
-//Search in a text field containing someone's first and last name for there full name, just their first and just their last
+//8. Search in a text field containing someone's first and last name for there full name, just their first and just their last
+//Source: Me
   glide.keymaps.set("normal", "<S-n>", async () => {
 	const delay = 3000;
 	
@@ -362,6 +381,36 @@ async function focusLargestScrollable(
 	await glide.keys.send("<Enter>");
 
   });
+
+
+//9. Show hints only for Outlook Safe Links and copy the decoded URL with ys in normal mode.
+glide.keymaps.set("normal", "ys", () => {
+    glide.hints.show({
+        selector: "a[href]",
+
+        async pick({ hints, content }) {
+            const hrefs = await content.map(
+                (element) => (element as HTMLAnchorElement).href,
+            );
+
+            return hints.filter(
+                (_, index) => decodeSafeLinksURL(hrefs[index]!) !== null,
+            );
+        },
+
+        async action({ content }) {
+            const href = await content.execute(
+                (element) => (element as HTMLAnchorElement).href,
+            );
+
+            const decoded = decodeSafeLinksURL(href);
+
+            if (decoded) {
+                await navigator.clipboard.writeText(decoded);
+            }
+        },
+    });
+});
 
 
 
