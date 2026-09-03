@@ -192,7 +192,8 @@ glide.keymaps.set("normal", "yy", async () => {
     await glide.keys.send("<S-End>");
     await glide.keys.send("<C-c>");
     await glide.keys.send("<Right>");
-
+}, {
+	description: "Yank current line",
 });
 
 //p to paste in normal mode
@@ -410,6 +411,8 @@ glide.keymaps.set("normal", "ys", () => {
             }
         },
     });
+}, {
+	description: "Yank decoded Safelinks",
 });
 
 
