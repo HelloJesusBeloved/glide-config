@@ -390,13 +390,30 @@ glide.keymaps.set("normal", "ys", () => {
         selector: "a[href]",
 
         async pick({ hints, content }) {
-            const hrefs = await content.map(
-                (element) => (element as HTMLAnchorElement).href,
-            );
+            const elements = await content.map((element) => {
+                const anchor = element as HTMLAnchorElement;
+                const style = getComputedStyle(anchor);
+                const rect = anchor.getBoundingClientRect();
 
-            return hints.filter(
-                (_, index) => decodeSafeLinksURL(hrefs[index]!) !== null,
-            );
+                return {
+                    href: anchor.href,
+                    visible:
+                        style.display !== "none" &&
+                        style.visibility !== "hidden" &&
+                        style.opacity !== "0" &&
+                        rect.width > 0 &&
+                        rect.height > 0,
+                };
+            });
+
+            return hints.filter((_, index) => {
+                const element = elements[index];
+
+                return (
+                    element?.visible === true &&
+                    decodeSafeLinksURL(element.href) !== null
+                );
+            });
         },
 
         async action({ content }) {
