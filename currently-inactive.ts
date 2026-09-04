@@ -16,3 +16,37 @@ const commands = {
     //     macos: "/usr/bin/git",
     // },
 };
+
+
+//Run a configured Operating System Command Path
+//Source: ChatGPT
+//
+//Examples: runCommand("git", ["fetch"]);
+// await runCommand("curl", [
+//                     "-i",
+//                     "-X", "POST",
+//                     "https://urlquery.net/api/htmx/submit/url",
+//                     "-H", "HX-Request: true",
+//                     "-H", "Referer: https://urlquery.net/",
+//                     "-H", "Origin: https://urlquery.net",
+//                     "--data-urlencode", `url=${url}`,
+//                 ]);
+				
+async function runCommand(
+    command: keyof typeof commands,
+    args: string[],
+) {
+    const os = String(glide.ctx.os).toLowerCase();
+
+    let executable: string;
+
+    if (os.includes("win")) {
+        executable = commands[command].windows;
+    } else if (os.includes("mac")) {
+        executable = commands[command].macos;
+    } else {
+        executable = commands[command].linux;
+    }
+
+    return await glide.process.execute(executable, args);
+}
