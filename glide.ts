@@ -554,11 +554,11 @@ glide.keymaps.set("normal", "ys", () => {
 });
 
 
-//10. Open the copied url in virustotal.com and urlquery.net
+//10. Open the copied url in virustotal.com
 //Source: ChatGPT
 subMenu("1", {
     u: {
-        description: "Scan clipboard URL",
+        description: "Scan clipboard URL with VirusTotal",
 
         action: async () => {
             const clipboard = await navigator.clipboard.readText();
@@ -568,58 +568,9 @@ subMenu("1", {
                 glideError("Clipboard does not contain a valid URL.");
             }
 
-            // Open VirusTotal immediately.
+            // Open VirusTotal.
             await browser.tabs.create({
                 url: `https://www.virustotal.com/gui/search?query=${url}`,
-            });
-
-            // Submit the URL to URLQuery.
-            let result;
-
-            try {
-                result = await runCommand("curl", [
-                    "-i",
-//curl progress bar "-sS",
-                    "-X", "POST",
-                    "https://urlquery.net/api/htmx/submit/url",
-                    "-H", "HX-Request: true",
-                    "-H", "Referer: https://urlquery.net/",
-                    "-H", "Origin: https://urlquery.net",
-                    "--data-urlencode", `url=${url}`,
-                ]);
-            } catch (error) {
-                glideError(
-                    `Could not run curl for urlquery: ${error}`,
-                );
-            }
-
-            if (result.exit_code !== 0) {
-                const stderr = await result.stderr.text();
-
-                glideError(
-                    `Urlquery submission failed (curl exit code ${result.exit_code}).${
-                        stderr.trim() ? ` ${stderr.trim()}` : ""
-                    }`,
-                );
-            }
-
-            const response = await result.stdout.text();
-
-            const redirect = response.match(
-                /^Hx-Redirect:\s*(.+)$/im,
-            )?.[1]?.trim();
-
-            if (!redirect) {
-                glideError(
-                    `Urlquery did not return a queue URL.\n\n${response.trim()}`,
-                );
-            }
-
-            await browser.tabs.create({
-                url: new URL(
-                    redirect,
-                    "https://urlquery.net",
-                ).toString(),
             });
         },
     },
