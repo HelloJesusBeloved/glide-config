@@ -163,6 +163,7 @@ function subMenu(
 // http://apple.com → valid
 // apple.com → becomes https://apple.com
 // www.apple.com/foo → becomes https://www.apple.com/foo
+// sdfsdfsdjf → error
 // random text → error
 // ftp://... → error
 // empty string → error
@@ -183,6 +184,11 @@ function normalizeURL(value: string): string | null {
         const url = new URL(value);
 
         if (url.protocol !== "http:" && url.protocol !== "https:") {
+            return null;
+        }
+
+        // Require a hostname that looks like a real domain.
+        if (!url.hostname.includes(".")) {
             return null;
         }
 
