@@ -80,6 +80,127 @@ function decodeSafeLinksURL(safeLinksUrl: string): string | null {
 }
 
 
+//4. SubMenu Structure Definition
+//Creates the structure for making your own multi key submenu structures
+//Source: ChatGPT
+//Example:
+// subMenu("1", {
+//     u: {
+//         description: "URL scanners",
+//         action: async () => {
+//             // whatever you want
+//         },
+//     },
+// 
+//     n: {
+//         description: "Search person",
+//         websites: [
+//             "outlook.office.com",
+//             "outlook.cloud.microsoft",
+//         ],
+//         action: async () => {
+//             // whatever you want
+//         },
+//     },
+// });
+
+type SubMenuAction = () => void | Promise<void>;
+
+interface SubMenuItem {A
+    description: string;
+    action: SubMenuAction;
+
+    // Leave blank/undefined for global.
+    // Add one or more hostnames to restrict the mapping.
+    websites?: string[];
+}
+
+function websiteMatches(websites?: string[]): boolean {
+    if (!websites || websites.length === 0) {
+        return true;
+    }
+
+    const hostname = glide.ctx.url.hostname.toLowerCase();
+
+    return websites.some((website) => {
+        const host = website
+            .replace(/^https?:\/\//, "")
+            .replace(/\/.*$/, "")
+            .toLowerCase();
+
+        return hostname === host || hostname.endsWith(`.${host}`);
+    });
+}
+
+function subMenu(
+    prefix: string,
+    items: Record<string, SubMenuItem>,
+) {
+    for (const [key, item] of Object.entries(items)) {
+        glide.keymaps.set(
+            "normal",
+            `${prefix}${key}`,
+            async () => {
+                if (!websiteMatches(item.websites)) {
+                    return;
+                }
+
+                await item.action();
+            },
+            {
+                description: item.description,
+            },
+        );
+    }
+}
+
+
+//5. Normalize and validate a web URL
+//Source: ChatGPT
+//
+//Examples:
+// https://apple.com → valid
+// http://apple.com → valid
+// apple.com → becomes https://apple.com
+// www.apple.com/foo → becomes https://www.apple.com/foo
+// random text → error
+// ftp://... → error
+// empty string → error
+
+function normalizeURL(value: string): string | null {
+    value = value.trim();
+
+    if (!value) {
+        return null;
+    }
+
+    // If there is no URL scheme, assume HTTPS.
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+        value = `https://${value}`;
+    }
+
+    try {
+        const url = new URL(value);
+
+        if (url.protocol !== "http:" && url.protocol !== "https:") {
+            return null;
+        }
+
+        return url.toString();
+    } catch {
+        return null;
+    }
+}
+
+
+//6. Show an error using Glide's built-in error handling
+//Source: ChatGPT
+function glideError(message: string): never {
+    throw new Error(message);
+}
+
+
+
 //Custom Keybinds and Commands
 
 //1. Search highlighted text with duckduckgo in normal and visual mode
@@ -430,6 +551,78 @@ glide.keymaps.set("normal", "ys", () => {
     });
 }, {
 	description: "Yank decoded Safelinks",
+});
+
+
+//10. Open the copied url in virustotal.com and urlquery.net
+//Source: ChatGPT
+subMenu("1", {
+    u: {
+        description: "Scan clipboard URL",
+
+        action: async () => {
+            const clipboard = await navigator.clipboard.readText();
+            const url = normalizeURL(clipboard);
+
+            if (!url) {
+                glideError("Clipboard does not contain a valid URL.");
+            }
+
+            // Open VirusTotal immediately.
+            await browser.tabs.create({
+                url: `https://www.virustotal.com/gui/search?query=${url}`,
+            });
+
+            // Submit the URL to URLQuery.
+            let result;
+
+            try {
+                result = await runCommand("curl", [
+                    "-i",
+//curl progress bar "-sS",
+                    "-X", "POST",
+                    "https://urlquery.net/api/htmx/submit/url",
+                    "-H", "HX-Request: true",
+                    "-H", "Referer: https://urlquery.net/",
+                    "-H", "Origin: https://urlquery.net",
+                    "--data-urlencode", `url=${url}`,
+                ]);
+            } catch (error) {
+                glideError(
+                    `Could not run curl for urlquery: ${error}`,
+                );
+            }
+
+            if (result.exit_code !== 0) {
+                const stderr = await result.stderr.text();
+
+                glideError(
+                    `Urlquery submission failed (curl exit code ${result.exit_code}).${
+                        stderr.trim() ? ` ${stderr.trim()}` : ""
+                    }`,
+                );
+            }
+
+            const response = await result.stdout.text();
+
+            const redirect = response.match(
+                /^Hx-Redirect:\s*(.+)$/im,
+            )?.[1]?.trim();
+
+            if (!redirect) {
+                glideError(
+                    `Urlquery did not return a queue URL.\n\n${response.trim()}`,
+                );
+            }
+
+            await browser.tabs.create({
+                url: new URL(
+                    redirect,
+                    "https://urlquery.net",
+                ).toString(),
+            });
+        },
+    },
 });
 
 
