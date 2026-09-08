@@ -766,12 +766,6 @@ glide.keymaps.set("normal", "<leader>i", "jumplist_forward");
     await glide.keys.send("<C-S-_>");
   });
 
-//Set F4 to Esc so that caps lock at work on my Keycron C3 Pro it will act as Esc (since I have it set to F4 so I can use it with Alt to close windows)
-//Source: Me
-  glide.keymaps.set(["normal", "visual", "insert"], "<F4>", async () => {
-	await glide.keys.send("<Esc>");
-  });
-
 //Map yl to yank the current tab URL to clipboard
 //Source: Me
 glide.keymaps.set("normal", "yl", "url_yank");
@@ -1031,7 +1025,7 @@ glide.autocmds.create("UrlEnter", {
 // Glide Snippet Engine 2.0
 // Keyword Expansion - type qew<space> -> Expands to crying emoji
 // Note: Does not work everywhere yet, if it doesn't work use 
-// Snippet Engine 1.0 (Mapped to <C-e> (Ctrl + e) in insert mode
+// Snippet Engine 1.0 (Mapped to <F4> in insert mode)
 // then qew<space>
 //
 // Configuration
@@ -1484,8 +1478,9 @@ runSnippetEngine();
 
 //──────────────────────────────────────────────────────────────
 // Glide Snippet Engine 1.0
-// Manual snippet expansion (<C-e>)
+// Manual snippet expansion (<F4 (Caps Lock)>)
 //──────────────────────────────────────────────────────────────
+//Note: I have caps lock remapped to F4 on my windows work computer keyboard, so I can use Alt + "Caps Lock" to close windows
 
 
 // Insert text at the cursor without deleting anything.
@@ -1516,7 +1511,7 @@ async function insertText(
 }
 
 
-glide.keymaps.set("insert", "<C-e>", async ({ tab_id }) => {
+glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
 
     let typed = "";
 
@@ -1530,7 +1525,7 @@ glide.keymaps.set("insert", "<C-e>", async ({ tab_id }) => {
 		) {
 
             const snippet =
-                SnippetEngine.snippets[typed];
+                SnippetEngine.snippets[`q${typed}`];
 
             // Unknown snippet -> cancel.
             if (!snippet) {
