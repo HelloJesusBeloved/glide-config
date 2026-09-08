@@ -206,6 +206,133 @@ function glideError(message: string): never {
 }
 
 
+//7. Check whether the visual-mode cursor is between the first and second
+// characters of a word.
+//
+// This works across HTML text-node boundaries by using DOM Ranges to
+// inspect the text immediately surrounding the actual selection focus.
+//
+// Examples:
+//
+//   hello
+//   ^     → false
+//
+//   hello
+//    ^    → true
+//
+//   <strong>he</strong>llo
+//       ^              → true
+//
+//   hello <strong>world</strong>
+//         ^                    → true
+//
+// The function deliberately checks the selection's FOCUS position,
+// because that is the side of the selection where the Vim cursor is.
+//Source: ChatGPT
+async function isBetweenFirstTwoWordCharacters(
+    tab_id: number,
+): Promise<boolean> {
+    return await glide.content.execute(
+        () => {
+            const selection = window.getSelection();
+
+            if (!selection || selection.rangeCount === 0) {
+                return false;
+            }
+
+            const focusNode = selection.focusNode;
+            const focusOffset = selection.focusOffset;
+
+            if (!focusNode) {
+                return false;
+            }
+
+            // Find the nearest element containing the selection.
+            //
+            // Normally this will be the page body or an element inside it.
+            // Using the common ancestor lets this work inside things such
+            // as articles, contenteditable areas, etc.
+            const container =
+                focusNode.nodeType === Node.ELEMENT_NODE
+                    ? (focusNode as Element)
+                    : focusNode.parentElement;
+
+            if (!container) {
+                return false;
+            }
+
+            // Create a range representing everything before the actual
+            // selection focus.
+            const beforeRange = document.createRange();
+
+            try {
+                beforeRange.selectNodeContents(container);
+                beforeRange.setEnd(focusNode, focusOffset);
+            } catch {
+                return false;
+            }
+
+            // Create a range representing everything after the actual
+            // selection focus.
+            const afterRange = document.createRange();
+
+            try {
+                afterRange.selectNodeContents(container);
+                afterRange.setStart(focusNode, focusOffset);
+            } catch {
+                return false;
+            }
+
+            const beforeText = beforeRange.toString();
+            const afterText = afterRange.toString();
+
+            // We need at least two characters before the caret:
+            //
+            //   [word start][first letter][caret]
+            //
+            // However, because the container may begin immediately at the
+            // caret, also handle the case where there is only one character
+            // before the caret.
+            const previous = beforeText.at(-1);
+            const previousPrevious = beforeText.at(-2);
+            const next = afterText.at(0);
+
+            if (!previous || !next) {
+                return false;
+            }
+
+            // Vim's normal "word" characters.
+            const isWordCharacter = (char: string) =>
+                /[A-Za-z0-9_]/.test(char);
+
+            // We are looking for:
+            //
+            //   <word character> <word character>
+            //   ^first            ^caret
+            //
+            // where the character before the first character is NOT a
+            // word character.
+            //
+            // Example:
+            //
+            //   hello
+            //    ^
+            //
+            // beforeText ends in "h"
+            // previous = "h"
+            // previousPrevious = whitespace/start
+            // next = "e"
+            return (
+                isWordCharacter(previous) &&
+                isWordCharacter(next) &&
+                (!previousPrevious ||
+                    !isWordCharacter(previousPrevious))
+            );
+        },
+        { tab_id },
+    );
+}
+
 
 //Custom Keybinds and Commands
 
@@ -355,9 +482,20 @@ glide.keymaps.set("visual", "k", async () => {
     await glide.keys.send("<S-Up>");
 });
 
-//b. Make b actually select backwards one word
+//b. Make w and b actually select forwards and backwards one word
 glide.keymaps.set("visual", "b", async () => {
     await glide.keys.send("<C-S-Left>");
+});
+// The actual browser cursor is effectively positioned to the right of the
+// vim style cursor. That puts the cursor between the first and second letter
+// of the word when using w in visual mode, so this moves back one character
+// at the beggining of the word before extending the selection with Ctrl+Right.
+glide.keymaps.del("visual", "w");
+glide.keymaps.set("visual", "w", async ({ tab_id }) => {
+    if (await isBetweenFirstTwoWordCharacters(tab_id)) {
+        await glide.keys.send("<Left>");
+    }
+    await glide.keys.send("<C-S-Right>");
 });
 
 //c. Make gg and shift + g actually select to the bottom or top in visual mode
