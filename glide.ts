@@ -355,16 +355,28 @@ glide.keymaps.set("visual", "k", async () => {
     await glide.keys.send("<S-Up>");
 });
 
-//b. Make gg and shift + g actually select to the bottom or top in visual mode
+//b. Make b actually select backwards one word
+glide.keymaps.set("visual", "b", async () => {
+    await glide.keys.send("<C-S-Left>");
+});
+
+//c. Make gg and shift + g actually select to the bottom or top in visual mode
   glide.keymaps.set("visual", "<S-g>", async () => {
     await glide.keys.send("<C-S-End>");
   });
-
   glide.keymaps.set("visual", "gg", async () => {
     await glide.keys.send("<C-S-Home>");
   });
 
-//c. Make <leader>v turn on caret browsing
+//d. Make 0 and $ actually go to the beginning and end of the line
+glide.keymaps.set("visual", "$", async () => {
+    await glide.keys.send("<S-End>");
+});
+glide.keymaps.set("visual", "0", async () => {
+    await glide.keys.send("<S-Home>");
+});
+
+//e. Make <leader>v turn on caret browsing
 glide.keymaps.set("normal", "<leader>v", async () => {
     await glide.keys.send("<F7>");
   });
