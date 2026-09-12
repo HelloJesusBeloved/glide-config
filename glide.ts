@@ -706,7 +706,7 @@ glide.keymaps.set("normal", "ys", () => {
         },
     });
 }, {
-	description: "Yank decoded Safelinks",
+	description: "Hint yankable decoded Safelinks",
 });
 
 
