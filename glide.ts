@@ -1045,14 +1045,22 @@ glide.autocmds.create("UrlEnter", {
 
 
 //──────────────────────────────────────────────────────────────
-// Glide Snippet Engine 2.0
-// Keyword Expansion - type qew<space> -> Expands to crying emoji
-// Note: Does not work everywhere yet, if it doesn't work use 
-// Snippet Engine 1.0 (Mapped to <F4> in insert mode)
-// then qew<space>
-//
-// Configuration
+// Glide Snippet Engine 1.0
+// Manual Keyword snippet expansion (Trigger Key: <F4>)
 //──────────────────────────────────────────────────────────────
+// Note: Caps Lock is remapped to F4 on my Windows work keyboard,
+// so that I can use Alt + Caps Lock to close windows, so you may
+// want to remap this to something easier to hit for you.
+//
+// Usage:
+// <Trigger Key> + ew + <Space> -> 🥹
+// <Trigger Key> + check + <Space> -> ✅
+//
+// Snippets are stored with a leading "q", but the "q" does not
+// need to be typed when manually expanding a snippet.
+//
+// The snippet engine only runs while the F4 mapping is active.
+// It does not maintain a background key listener.
 
 const SnippetEngine = {
 
@@ -1119,7 +1127,7 @@ const SnippetEngine = {
         qh3: "❤️❤️❤️",
         qhaa: "🫡",
         qhac: "👏",
-		qhach: "🤌",
+		    qhach: "🤌",
         qhad: "👇",
         qhaf: "👊",
         qhah: "🫶",
@@ -1160,7 +1168,6 @@ const SnippetEngine = {
         qsbb: "😊",
         qsh: "😇",
         qshrug: "🤷",
-        qshrugg: "¯\\_(ツ)_/¯",
         qsk: "💀",
         qsl: "😴",
         qsmirk: "😏",
@@ -1179,334 +1186,24 @@ const SnippetEngine = {
         qwoozy: "😵‍💫",
         qx: "❌",
         qyawn: "🥱",
+
+        //Unicode Characters
+        qshrugg: "¯\\_(ツ)_/¯",
     },
 
-    // Keys that trigger snippet expansion.
+    // Keys that confirm a snippet.
     triggerKeys: [
         "<Space>",
         ".",
     ],
 
-    // Cached lookup data.
-    snippetKeys: [] as string[],
-    triggerKeySet: new Set<string>(),
-
-    // Length of the longest snippet trigger.
-    maxSnippetLength: 0,
-
-    // Rolling buffer of recently typed characters.
-    buffer: "",
-
-    // Prevent multiple listener loops.
-    running: false,
-
 };
 
 
-
 //──────────────────────────────────────────────────────────────
-// Initialization
-//──────────────────────────────────────────────────────────────
-
-// Initialize snippet lookup cache.
-SnippetEngine.snippetKeys =
-    Object.keys(SnippetEngine.snippets);
-
-// Initialize trigger key lookup cache.
-SnippetEngine.triggerKeySet =
-    new Set(SnippetEngine.triggerKeys);
-
-// Compute the maximum buffer length needed.
-SnippetEngine.maxSnippetLength =
-    Math.max(
-        ...SnippetEngine.snippetKeys.map(k => k.length),
-    );
-
-
-
-//──────────────────────────────────────────────────────────────
-// Glide Snippet Engine 2.0
-// Helper Functions
-//──────────────────────────────────────────────────────────────
-
-//1.
-//Replace text in an INPUT or TEXTAREA element.
-async function replaceInput(
-    tab_id: number,
-    deleteCount: number,
-    replacement: string,
-) {
-
-    return await glide.content.execute(
-        (deleteCount, replacement) => {
-
-            const active = document.activeElement;
-
-            if (
-                !(active instanceof HTMLInputElement) &&
-                !(active instanceof HTMLTextAreaElement)
-            ) {
-                return false;
-            }
-
-            const start = active.selectionStart ?? 0;
-            const end = active.selectionEnd ?? start;
-
-            active.setRangeText(
-                replacement,
-                Math.max(0, start - deleteCount),
-                end,
-                "end",
-            );
-
-            return true;
-
-        },
-        {
-            tab_id,
-            args: [deleteCount, replacement],
-        },
-    );
-
-}
-
-
-//2.
-// Replace text in a contenteditable editor.
-async function replaceContentEditable(
-    tab_id: number,
-    typedSnippet: string,
-    replacement: string,
-): Promise<boolean> {
-
-    return await glide.content.execute(
-
-        (typedSnippet, replacement) => {
-
-            const selection = window.getSelection();
-
-            if (!selection || selection.rangeCount === 0) {
-                return false;
-            }
-
-            if (selection.rangeCount === 0) {
-                return false;
-            }
-
-            const range = selection.getRangeAt(0);
-
-            if (!(range.startContainer instanceof Text)) {
-                return false;
-            }
-
-            const text = range.startContainer.data;
-
-            // Find the last occurrence of the snippet before the cursor.
-            const start = text.lastIndexOf(
-                typedSnippet,
-                range.startOffset,
-            );
-
-            if (start === -1) {
-                return false;
-            }
-
-            range.setStart(
-                range.startContainer,
-                start,
-            );
-
-            range.deleteContents();
-
-            document.execCommand(
-                "insertText",
-                false,
-                replacement,
-            );
-
-            return true;
-
-        },
-
-        {
-            tab_id,
-            args: [typedSnippet, replacement],
-        },
-
-    );
-
-}
-
-
-
-//──────────────────────────────────────────────────────────────
-// Glide Snippet Engine 2.0
-// Dispatcher
-//──────────────────────────────────────────────────────────────
-
-// Replace the previously typed text in the active editor.
-async function replacePreviousText(
-    tab_id: number,
-    typedSnippet: string,
-    replacement: string,
-): Promise<boolean> {
-
-    const editorType = await glide.content.execute(() => {
-
-        const active = document.activeElement;
-
-        if (
-            active instanceof HTMLInputElement ||
-            active instanceof HTMLTextAreaElement
-        ) {
-            return "input";
-        }
-
-        if (active?.isContentEditable) {
-            return "contenteditable";
-        }
-
-        return "unknown";
-
-    }, {
-        tab_id,
-    });
-
-    switch (editorType) {
-
-        case "input":
-            return await replaceInput(
-                tab_id,
-                typedSnippet.length,
-                replacement,
-            );
-
-        case "contenteditable":
-            return await replaceContentEditable(
-				tab_id,
-				typedSnippet,
-				replacement,
-			);
-
-        default:
-            return false;
-
-    }
-
-}
-
-
-
-//──────────────────────────────────────────────────────────────
-// Glide Snippet Engine 2.0
-// Buffer Helpers
-//──────────────────────────────────────────────────────────────
-
-// Append a key to the rolling buffer.
-function appendToBuffer(key: string): void {
-
-    SnippetEngine.buffer += key;
-
-    // Keep only the longest possible snippet.
-    SnippetEngine.buffer =
-        SnippetEngine.buffer.slice(
-            -SnippetEngine.maxSnippetLength,
-        );
-
-}
-
-// Clear the rolling buffer.
-function clearBuffer(): void {
-
-    SnippetEngine.buffer = "";
-
-}
-
-// Return the matching snippet, if one exists.
-function findSnippet(): string | null {
-
-    return SnippetEngine.snippets[
-        SnippetEngine.buffer
-    ] ?? null;
-
-}
-
-// Return true if the key should trigger expansion.
-function isTriggerKey(key: string): boolean {
-
-    return SnippetEngine.triggerKeySet.has(key);
-
-}
-
-
-
-//──────────────────────────────────────────────────────────────
-// Glide Snippet Engine 2.0
-// Listener
-//──────────────────────────────────────────────────────────────
-
-// Start the snippet engine.
-async function runSnippetEngine() {
-
-    if (SnippetEngine.running) {
-        return;
-    }
-
-    SnippetEngine.running = true;
-
-    while (true) {
-
-        const event = await glide.keys.next_passthrough();
-
-		const key = event.glide_key;
-
-        // Trigger key?
-        if (isTriggerKey(key)) {
-
-            const snippet = findSnippet();
-
-            if (snippet) {
-
-                const tab = await glide.tabs.active();
-
-				await new Promise(resolve => setTimeout(resolve, 0));
-
-                await replacePreviousText(
-					tab.id,
-					SnippetEngine.buffer,
-					snippet,
-				);
-            }
-
-            clearBuffer();
-            continue;
-
-        }
-
-        // Ignore special keys.
-        if (key.startsWith("<")) {
-            continue;
-        }
-
-        appendToBuffer(key);
-
-    }
-
-}
-
-runSnippetEngine();
-
-
-
-
-//──────────────────────────────────────────────────────────────
-// Glide Snippet Engine 1.0
-// Manual snippet expansion (<F4 (Caps Lock)>)
-//──────────────────────────────────────────────────────────────
-//Note: I have caps lock remapped to F4 on my windows work computer keyboard, so I can use Alt + "Caps Lock" to close windows
-
-
 // Insert text at the cursor without deleting anything.
+//──────────────────────────────────────────────────────────────
+
 async function insertText(
     tab_id: number,
     text: string,
@@ -1534,6 +1231,10 @@ async function insertText(
 }
 
 
+//──────────────────────────────────────────────────────────────
+// Manual snippet expansion
+//──────────────────────────────────────────────────────────────
+
 glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
 
     let typed = "";
@@ -1542,10 +1243,8 @@ glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
 
         const key = (await glide.keys.next()).glide_key;
 
-		// A configured trigger key confirms the snippet.
-		if (
-			SnippetEngine.triggerKeySet.has(key)
-		) {
+        // A configured trigger key confirms the snippet.
+        if (SnippetEngine.triggerKeys.includes(key)) {
 
             const snippet =
                 SnippetEngine.snippets[`q${typed}`];
