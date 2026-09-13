@@ -824,8 +824,8 @@ const ignoreSites: string[] = [
     "100.124.253.95",
 
     "vim-editor-online.vercel.app",
-	
-	"console.tailscale.com/admin/machines/ssh-reauth-complete"
+
+    "console.tailscale.com/admin/machines/ssh-reauth-complete"
 ];
 
 // Turn on ignore mode for matching sites.
@@ -846,7 +846,7 @@ glide.autocmds.create(
 );
 
 
-//2. Websites to enter insert mode when first visited
+//2. Websites to make insert the default on
 const insertSites: string[] = [
 
     "app.super-productivity.com",
@@ -854,30 +854,8 @@ const insertSites: string[] = [
 
 ];
 
-// Automatically enter Insert mode on these sites.
-glide.autocmds.create(
-    "UrlEnter",
-    new RegExp(
-        "^https?://([^/]*\\.)?(" +
-        insertSites
-            .map(site =>
-                site.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-            )
-            .join("|") +
-        ")(/|:|$)"
-    ),
-    async () => {
 
-        await glide.excmds.execute("mode_change insert");
-
-        return () =>
-            glide.excmds.execute("mode_change normal");
-
-    }
-);
-
-
-//2. Custom Keybinds
+//3. Custom Keybinds
 
 //A. Outlook (outlook.cloud.microsoft, outlook.office.com)
 glide.autocmds.create(
@@ -981,7 +959,6 @@ glide.keymaps.set("normal", "<S-!>", async () => {
     }
 
     await glide.keys.send("<Esc><Esc>");
-
 });
 
 
@@ -1036,7 +1013,6 @@ glide.autocmds.create("UrlEnter", {
 
         },
     );
-
 });
 
 
@@ -1044,6 +1020,7 @@ glide.autocmds.create("UrlEnter", {
 //Applications
 
 
+//1.
 //──────────────────────────────────────────────────────────────
 // Glide Snippet Engine 1.0
 // Manual Keyword snippet expansion (Trigger Key: <F4>)
@@ -1278,3 +1255,923 @@ glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
     }
 
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//2.
+//──────────────────────────────────────────────────────────────
+// Insert-Preferred Sites
+//──────────────────────────────────────────────────────────────
+//
+// Sites where Glide defaults to Insert mode.
+//
+//     Enter site
+//         → Insert
+//
+//     Insert → Esc
+//         → Temporary Normal
+//
+//     Temporary Normal → Esc
+//         → Persistent Normal
+//
+//     Other completed Normal commands
+//         → Insert
+//
+//     Temporary/Persistent Normal → page click
+//         → Insert
+//
+//     Temporary Normal → f → select hint
+//         → Insert
+//
+//     Temporary Normal → f → Esc
+//         → Temporary Normal
+//
+// Super Productivity:
+//
+//     Enter → Esc
+//         → Esc is passed through to the website
+//         → Glide remains in Insert
+//
+// No timers are used.
+//──────────────────────────────────────────────────────────────
+
+
+const persistentNormalCommands: string[] = [
+    "b",
+    "w",
+    "h",
+    "j",
+    "k",
+    "l",
+    "e",
+    "=",
+    "-",
+    "u",
+];
+
+
+type InsertPreferredState =
+    | "insert"
+    | "temporary-normal"
+    | "persistent-normal";
+
+
+let insertPreferredSite = false;
+
+let insertPreferredState: InsertPreferredState =
+    "insert";
+
+
+// True after Esc is seen in Insert and before the resulting
+// Insert → Normal ModeChanged event.
+let pendingInsertEscape = false;
+
+
+// The Normal state underneath a transient mode such as hints,
+// search, or the command line.
+let transientReturnState:
+    | "temporary-normal"
+    | "persistent-normal"
+    | null = null;
+
+
+// True while Glide's hint mode was entered by f.
+//
+// We use this to distinguish:
+//
+//     f → Esc
+//
+// from:
+//
+//     f → select hint
+//
+let hintWasEntered = false;
+
+let hintEscapePressed = false;
+
+
+// Super Productivity:
+//
+//     Enter → Esc
+//
+// When Enter is pressed on Super Productivity, this becomes true.
+// The following Esc is then passed directly to the page.
+let superProductivityEnterPressed = false;
+
+
+//──────────────────────────────────────────────────────────────
+// URL helpers
+//──────────────────────────────────────────────────────────────
+
+function insertPreferredHostnameMatches(
+    url: string,
+): boolean {
+    try {
+        const hostname =
+            new URL(url).hostname.toLowerCase();
+
+        return insertSites.some((site) => {
+            const host = site
+                .replace(/^https?:\/\//, "")
+                .replace(/\/.*$/, "")
+                .toLowerCase();
+
+            return (
+                hostname === host ||
+                hostname.endsWith(`.${host}`)
+            );
+        });
+    } catch {
+        return false;
+    }
+}
+
+
+function ignoredSiteMatches(
+    url: string,
+): boolean {
+    return ignoreSites.some((site) => {
+        const escaped = site.replace(
+            /[.*+?^${}()|[\]\\]/g,
+            "\\$&",
+        );
+
+        return new RegExp(escaped).test(url);
+    });
+}
+
+
+function isSuperProductivity(
+    url: string,
+): boolean {
+    try {
+        return (
+            new URL(url).hostname.toLowerCase() ===
+            "app.super-productivity.com"
+        );
+    } catch {
+        return false;
+    }
+}
+
+
+//──────────────────────────────────────────────────────────────
+// Normal-command helpers
+//──────────────────────────────────────────────────────────────
+
+function isPersistentNormalCommand(
+    sequence: string[],
+    partial: boolean,
+): boolean {
+    if (partial || sequence.length === 0) {
+        return false;
+    }
+
+    return (
+        sequence.length === 1 &&
+        persistentNormalCommands.includes(
+            sequence[0],
+        )
+    );
+}
+
+
+//──────────────────────────────────────────────────────────────
+// Transient Normal commands
+//──────────────────────────────────────────────────────────────
+//
+// These commands enter another Glide mode instead of simply
+// completing as an ordinary Normal command.
+//
+// In particular:
+//
+//     f → Hint
+//     / → Find
+//     ? → Find backwards
+//     : → Command line
+//
+// These need to be recognized immediately so the ordinary
+// Normal-command handling below does not accidentally return
+// us to Insert before the transient mode is entered.
+//──────────────────────────────────────────────────────────────
+
+const transientNormalCommands: string[] = [
+    "f",
+    "/",
+    "?",
+    ":",
+];
+
+
+//──────────────────────────────────────────────────────────────
+// Page → config messenger
+//
+// The content side ONLY reports that a page click happened.
+//
+// The tab ID is explicitly passed into content.execute because
+// content functions cannot capture variables from the config
+// process.
+//──────────────────────────────────────────────────────────────
+
+const insertPreferredMessenger =
+    glide.messengers.create<{
+        page_click: {
+            tab_id: number;
+        };
+    }>((message) => {
+        if (
+            message.name !== "page_click"
+        ) {
+            return;
+        }
+
+        if (!insertPreferredSite) {
+            return;
+        }
+
+        void (async () => {
+            const activeTab =
+                await glide.tabs.active();
+
+            if (
+                activeTab.id !== message.tab_id
+            ) {
+                return;
+            }
+
+            if (
+                insertPreferredState !==
+                    "temporary-normal" &&
+                insertPreferredState !==
+                    "persistent-normal"
+            ) {
+                return;
+            }
+
+            insertPreferredState =
+                "insert";
+
+            pendingInsertEscape = false;
+            transientReturnState = null;
+            hintWasEntered = false;
+            hintEscapePressed = false;
+
+            await glide.excmds.execute(
+                "mode_change insert",
+            );
+        })();
+    });
+
+
+//──────────────────────────────────────────────────────────────
+// Install the page click listener
+//──────────────────────────────────────────────────────────────
+
+async function installInsertPreferredClickListener(
+    tab_id: number,
+): Promise<void> {
+    await insertPreferredMessenger.content.execute(
+        (
+            messenger,
+            actual_tab_id,
+        ) => {
+            const marker =
+                "__glideInsertPreferredClickListener";
+
+            if (
+                (window as unknown as Record<string, unknown>)[
+                    marker
+                ] === true
+            ) {
+                return;
+            }
+
+            (
+                window as unknown as Record<string, unknown>
+            )[marker] = true;
+
+            document.addEventListener(
+                "click",
+                () => {
+                    messenger.send(
+                        "page_click",
+                        {
+                            tab_id: actual_tab_id,
+                        },
+                    );
+                },
+                true,
+            );
+        },
+        {
+            tab_id,
+            args: [tab_id],
+        },
+    );
+}
+
+
+//──────────────────────────────────────────────────────────────
+// URL changes
+//
+// UrlEnter fires when the focused URL changes, including when
+// switching tabs.
+//──────────────────────────────────────────────────────────────
+
+glide.autocmds.create(
+    "UrlEnter",
+    /^https?:\/\/.+/,
+    async ({ url, tab_id }) => {
+        // Ignore sites always win.
+        if (
+            ignoredSiteMatches(url)
+        ) {
+            insertPreferredSite = false;
+
+            insertPreferredState =
+                "insert";
+
+            pendingInsertEscape = false;
+
+            transientReturnState = null;
+
+            hintWasEntered = false;
+            hintEscapePressed = false;
+
+            superProductivityEnterPressed =
+                false;
+
+            return;
+        }
+
+
+        insertPreferredSite =
+            insertPreferredHostnameMatches(
+                url,
+            );
+
+        insertPreferredState =
+            "insert";
+
+        pendingInsertEscape = false;
+
+        transientReturnState = null;
+
+        hintWasEntered = false;
+        hintEscapePressed = false;
+
+        superProductivityEnterPressed =
+            false;
+
+
+        if (!insertPreferredSite) {
+            return;
+        }
+
+
+        await installInsertPreferredClickListener(
+            tab_id,
+        );
+
+
+        await glide.excmds.execute(
+            "mode_change insert",
+        );
+    },
+);
+
+
+//──────────────────────────────────────────────────────────────
+// Super Productivity: Enter
+//──────────────────────────────────────────────────────────────
+//
+// Enter is explicitly passed through to the page, while we
+// remember that it was the last key handled by this mapping.
+//
+// The next Escape can therefore be passed through too.
+//
+// This avoids trying to observe arbitrary Insert-mode keys with
+// KeyStateChanged, which Glide intentionally does not provide.
+//──────────────────────────────────────────────────────────────
+
+glide.keymaps.set(
+    "insert",
+    "<Enter>",
+    async () => {
+        if (
+            !insertPreferredSite ||
+            !isSuperProductivity(
+                glide.ctx.url.toString(),
+            )
+        ) {
+            await glide.keys.send(
+                "<Enter>",
+                {
+                    skip_mappings: true,
+                },
+            );
+
+            return;
+        }
+
+
+        superProductivityEnterPressed =
+            true;
+
+
+        await glide.keys.send(
+            "<Enter>",
+            {
+                skip_mappings: true,
+            },
+        );
+    },
+);
+
+
+//──────────────────────────────────────────────────────────────
+// Super Productivity: Escape
+//──────────────────────────────────────────────────────────────
+//
+// If Enter was the previous key:
+//
+//     Esc → website
+//
+// and Glide remains in Insert.
+//
+// Otherwise:
+//
+//     Esc → ordinary Insert → temporary Normal
+//──────────────────────────────────────────────────────────────
+
+glide.keymaps.set(
+    "insert",
+    "<Esc>",
+    async () => {
+        if (
+            insertPreferredSite &&
+            isSuperProductivity(
+                glide.ctx.url.toString(),
+            ) &&
+            superProductivityEnterPressed
+        ) {
+            superProductivityEnterPressed =
+                false;
+
+            await glide.keys.send(
+                "<Esc>",
+                {
+                    skip_mappings: true,
+                },
+            );
+
+            return;
+        }
+
+
+        superProductivityEnterPressed =
+            false;
+
+        pendingInsertEscape = true;
+
+        await glide.excmds.execute(
+            "mode_change normal",
+        );
+    },
+);
+
+
+//──────────────────────────────────────────────────────────────
+// Mode changes
+//──────────────────────────────────────────────────────────────
+
+glide.autocmds.create(
+    "ModeChanged",
+    "*",
+    async ({ old_mode, new_mode }) => {
+        // Glide can emit normal → normal. Ignore it.
+        if (
+            old_mode === new_mode
+        ) {
+            return;
+        }
+
+
+        if (!insertPreferredSite) {
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Insert → Normal
+        //────────────────────────────────────────────────────────
+
+        if (
+            old_mode === "insert" &&
+            new_mode === "normal"
+        ) {
+            if (pendingInsertEscape) {
+                pendingInsertEscape = false;
+
+                insertPreferredState =
+                    "temporary-normal";
+
+                transientReturnState =
+                    null;
+
+                return;
+            }
+
+
+            // Anything other than our intentional Escape is
+            // considered a focus-driven exit from Insert.
+            insertPreferredState =
+                "insert";
+
+            await glide.excmds.execute(
+                "mode_change insert",
+            );
+
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Normal → Insert
+        //────────────────────────────────────────────────────────
+
+        if (
+            old_mode === "normal" &&
+            new_mode === "insert"
+        ) {
+            pendingInsertEscape = false;
+
+            transientReturnState =
+                null;
+
+            insertPreferredState =
+                "insert";
+
+            hintWasEntered = false;
+            hintEscapePressed = false;
+
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Normal → Hint
+        //────────────────────────────────────────────────────────
+        //
+        // f is a special transient operation because we need to
+        // distinguish selecting a hint from cancelling hints.
+        //────────────────────────────────────────────────────────
+
+        if (
+            old_mode === "normal" &&
+            new_mode === "hint"
+        ) {
+            hintWasEntered = true;
+            hintEscapePressed = false;
+
+            if (
+                insertPreferredState ===
+                "persistent-normal"
+            ) {
+                transientReturnState =
+                    "persistent-normal";
+            } else {
+                transientReturnState =
+                    "temporary-normal";
+            }
+
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Hint → Normal
+        //────────────────────────────────────────────────────────
+        //
+        // Escape means the hint operation was cancelled.
+        //
+        // Anything else means a hint was selected. Glide's hint
+        // system activates the selected element, so selecting a
+        // hint should put an Insert-Preferred site into Insert.
+        //────────────────────────────────────────────────────────
+
+        if (
+            old_mode === "hint" &&
+            new_mode === "normal"
+        ) {
+            if (
+                hintWasEntered
+            ) {
+                if (
+                    hintEscapePressed
+                ) {
+                    // Hint was cancelled with Escape.
+                    //
+                    // Return to the exact Normal state we
+                    // were in before entering hint mode.
+                    insertPreferredState =
+                        transientReturnState ??
+                        "temporary-normal";
+                } else {
+                    // A hint was selected.
+                    //
+                    // Treat the selected element like a page
+                    // click and return to Insert.
+                    insertPreferredState =
+                        "insert";
+                }
+
+                hintWasEntered = false;
+                hintEscapePressed = false;
+                transientReturnState = null;
+
+                if (
+                    insertPreferredState ===
+                    "insert"
+                ) {
+                    await glide.excmds.execute(
+                        "mode_change insert",
+                    );
+                }
+
+                return;
+            }
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Normal → other transient mode
+        //────────────────────────────────────────────────────────
+
+        if (
+            old_mode === "normal" &&
+            new_mode !== "normal"
+        ) {
+            if (
+                insertPreferredState ===
+                "persistent-normal"
+            ) {
+                transientReturnState =
+                    "persistent-normal";
+            } else {
+                transientReturnState =
+                    "temporary-normal";
+            }
+
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Other transient mode → Normal
+        //────────────────────────────────────────────────────────
+
+        if (
+            old_mode !== "normal" &&
+            old_mode !== "hint" &&
+            new_mode === "normal"
+        ) {
+            if (
+                transientReturnState !== null
+            ) {
+                insertPreferredState =
+                    transientReturnState;
+
+                transientReturnState =
+                    null;
+            }
+
+            return;
+        }
+    },
+);
+
+
+//──────────────────────────────────────────────────────────────
+// KeyStateChanged
+//
+// 1. Detect Esc from Insert.
+//
+// 2. Detect Esc while in hint mode.
+//
+// 3. Detect transient Normal commands.
+//
+// 4. Detect persistent Normal commands.
+//
+// 5. Ordinary completed Normal commands return to Insert.
+//
+// We intentionally do NOT use KeyStateChanged as a raw keyboard
+// listener. Glide only fires it when the key sequence changes as
+// part of its mapping system.
+//──────────────────────────────────────────────────────────────
+
+glide.autocmds.create(
+    "KeyStateChanged",
+    "*",
+    ({ mode, sequence, partial }) => {
+        if (
+            !insertPreferredSite
+        ) {
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Insert Escape
+        //────────────────────────────────────────────────────────
+
+        if (
+            mode === "insert" &&
+            !partial &&
+            sequence.length === 1 &&
+            sequence[0] === "<Esc>"
+        ) {
+            // Super Productivity's Enter → Esc behavior is
+            // handled by the explicit Insert-mode mapping above.
+            if (
+                isSuperProductivity(
+                    glide.ctx.url.toString(),
+                ) &&
+                superProductivityEnterPressed
+            ) {
+                return;
+            }
+
+            pendingInsertEscape = true;
+
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Hint Escape
+        //────────────────────────────────────────────────────────
+
+        if (
+            mode === "hint" &&
+            !partial &&
+            sequence.length === 1 &&
+            sequence[0] === "<Esc>"
+        ) {
+            hintEscapePressed = true;
+
+            return;
+        }
+
+
+        // Everything below applies only to Normal.
+        if (
+            mode !== "normal"
+        ) {
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Partial Normal command
+        //────────────────────────────────────────────────────────
+        //
+        // For example:
+        //
+        //     d
+        //
+        // must remain Normal because it may become:
+        //
+        //     dw
+        //     db
+        //     d$
+        //────────────────────────────────────────────────────────
+
+        if (
+            partial
+        ) {
+            return;
+        }
+
+
+        // Empty sequence means Glide has reset the completed
+        // command sequence. There is nothing to interpret.
+        if (
+            sequence.length === 0
+        ) {
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Transient Normal command
+        //────────────────────────────────────────────────────────
+        //
+        // f, /, ?, and : enter another Glide mode.
+        //
+        // Record the Normal state underneath the transient mode
+        // immediately. This prevents the ordinary-command logic
+        // from returning to Insert before ModeChanged sees the
+        // transient mode.
+        //────────────────────────────────────────────────────────
+
+        if (
+            sequence.length === 1 &&
+            transientNormalCommands.includes(
+                sequence[0],
+            )
+        ) {
+            if (
+                insertPreferredState ===
+                "persistent-normal"
+            ) {
+                transientReturnState =
+                    "persistent-normal";
+            } else {
+                transientReturnState =
+                    "temporary-normal";
+            }
+
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Persistent Normal command
+        //────────────────────────────────────────────────────────
+
+        if (
+            isPersistentNormalCommand(
+                sequence,
+                partial,
+            )
+        ) {
+            insertPreferredState =
+                "persistent-normal";
+
+            transientReturnState =
+                null;
+
+            return;
+        }
+
+
+        //────────────────────────────────────────────────────────
+        // Ordinary completed Normal command
+        //────────────────────────────────────────────────────────
+        //
+        // Let Glide execute the command first.
+        //
+        // If it enters another mode, ModeChanged handles it.
+        //
+        // If it stays in Normal, return to Insert.
+        //────────────────────────────────────────────────────────
+
+        Promise.resolve().then(
+            async () => {
+                if (
+                    glide.ctx.mode !== "normal"
+                ) {
+                    return;
+                }
+
+
+                if (
+                    transientReturnState !== null
+                ) {
+                    return;
+                }
+
+
+                if (
+                    insertPreferredState ===
+                    "temporary-normal"
+                ) {
+                    insertPreferredState =
+                        "insert";
+
+                    await glide.excmds.execute(
+                        "mode_change insert",
+                    );
+                }
+            },
+        );
+    },
+);
