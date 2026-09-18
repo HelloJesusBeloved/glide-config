@@ -387,10 +387,14 @@ glide.excmds.create(
     const query = args_arr.join(" ");
 
 	await glide.excmds.execute(
-    `tab_new about:blank`
+    "tab_new about:blank",
 	);
 
     await new Promise(resolve => setTimeout(resolve, 100));
+
+    await glide.excmds.execute(
+        "mode_change insert",
+    );
 
     await glide.keys.send("<C-l>");
     await glide.keys.send(query);
