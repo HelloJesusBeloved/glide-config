@@ -737,6 +737,23 @@ subMenu("1", {
 });
 
 
+//11. Open clipboard contents in a new tab
+//Source: ChatGPT
+subMenu("1", {
+    o: {
+        description: "Open clipboard in a new tab",
+
+        action: async () => {
+            const clipboard = await navigator.clipboard.readText();
+
+            await browser.tabs.create({
+                url: clipboard,
+            });
+        },
+    },
+});
+
+
 
 //General Keybind Mapping/Re-mapping
 
