@@ -1027,6 +1027,7 @@ glide.autocmds.create("UrlEnter", {
                 tab_id,
                 'button[aria-label="Send"]',
                 'button[aria-label="Send prompt"]',
+                'button[aria-label="Send message"]',
                 'button[aria-label="Stop answering"]',
                 'div.flex.flex-wrap.justify-end button:last-child',
             );
