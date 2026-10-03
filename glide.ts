@@ -442,6 +442,41 @@ glide.keymaps.set("op-pending", "0", async () => {
     await glide.keys.send("<Backspace>");
 });
 
+//dG - Delete the current line and everything below it
+//Source: ChatGPT
+safeDel("op-pending", "<S-g>");
+
+glide.keymaps.set("op-pending", "<S-g>", async () => {
+    try {
+        await glide.keys.send(
+            "<Home><Left><C-S-End><Backspace>",
+            { skip_mappings: true },
+        );
+    } finally {
+        await glide.excmds.execute(
+            "mode_change normal",
+        );
+    }
+});
+
+//dd - Delete the current line, including the newline
+//Source: ChatGPT
+safeDel("normal", "dd");
+safeDel("op-pending", "d");
+
+glide.keymaps.set("op-pending", "d", async () => {
+    try {
+        await glide.keys.send(
+            "<Home><S-End><Delete><Delete>",
+            { skip_mappings: true },
+        );
+    } finally {
+        await glide.excmds.execute(
+            "mode_change normal",
+        );
+    }
+});
+
 //yy remapped to copy current line to clipboard in normal mode
 glide.keymaps.del("normal", "yy");
 
@@ -530,6 +565,39 @@ glide.keymaps.set("normal", "<leader>v", async () => {
     await glide.keys.send("<Enter>");
     await glide.keys.send("<Up>");
   });
+
+// Fix open a new line below the current line.
+//
+// Glide's built-in `o` can split text at the current caret position
+// on some web editors.
+//
+// Instead:
+//   1. Enter Insert mode.
+//   2. Move to the end of the current line.
+//   3. Send Enter directly to the webpage.
+//
+// Source: ChatGPT
+
+safeDel("normal", "o");
+
+glide.keymaps.set(
+    "normal", "o",
+    async () => {
+        await glide.excmds.execute(
+            "mode_change insert",
+        );
+
+        await glide.keys.send(
+            "<End><Enter>",
+            {
+                skip_mappings: true,
+            },
+        );
+    },
+    {
+        description: "Open new line below",
+    },
+);
 
 
 //6. Set the current tab's wake lock to on (make's so the computer doesn't sleep)
