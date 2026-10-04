@@ -478,7 +478,7 @@ glide.keymaps.set("op-pending", "d", async () => {
 });
 
 //yy remapped to copy current line to clipboard in normal mode
-glide.keymaps.del("normal", "yy");
+safeDel("normal", "yy");
 
 glide.keymaps.set("normal", "yy", async () => {
     await glide.keys.send("<Home>");
@@ -500,8 +500,8 @@ glide.keymaps.set("normal", "p", async () => {
   });
 
 //gg and shift + g from Page Home and End to the Bottom and Top of the Text Block
-glide.keymaps.del("normal", "<S-g>");
-glide.keymaps.del("normal", "gg");
+safeDel("normal", "<S-g>");
+safeDel("normal", "gg");
 
   glide.keymaps.set("normal", "<S-g>", async () => {
     await glide.keys.send("<C-End>");
@@ -529,7 +529,7 @@ glide.keymaps.set("visual", "b", async () => {
 // vim style cursor. That puts the cursor between the first and second letter
 // of the word when using w in visual mode, so this moves back one character
 // at the beggining of the word before extending the selection with Ctrl+Right.
-glide.keymaps.del("visual", "w");
+safeDel("visual", "w");
 glide.keymaps.set("visual", "w", async ({ tab_id }) => {
     if (await isBetweenFirstTwoWordCharacters(tab_id)) {
         await glide.keys.send("<Left>");
@@ -828,8 +828,8 @@ subMenu("1", {
 //Re-map Alt h and l to leader h and leader l
 //Source: pretty much the official docs, since I gave them to ChatGPT and it just replaced what I wanted with what they had as an example
 //1. Remove old Alt h and l mappings
-glide.keymaps.del("normal", "<A-h>");
-glide.keymaps.del("normal", "<A-l>");
+safeDel("normal", "<A-h>");
+safeDel("normal", "<A-l>");
 //2. Add new leader h and l mappings
 glide.keymaps.set("normal", "<leader>h", "back");
 glide.keymaps.set("normal", "<leader>l", "forward");
@@ -837,8 +837,8 @@ glide.keymaps.set("normal", "<leader>l", "forward");
 //Re-map <C-o> and <C-i> to <leader>o and <leader>i
 //Source: Me qc
 //1. Remove og <C-o> and <C-i> mapping
-glide.keymaps.del("normal", "<C-o>");
-glide.keymaps.del("normal", "<C-i>");
+safeDel("normal", "<C-o>");
+safeDel("normal", "<C-i>");
 //2. Add new <leader>o mapping
 glide.keymaps.set("normal", "<leader>o", "jumplist_back");
 glide.keymaps.set("normal", "<leader>i", "jumplist_forward");
