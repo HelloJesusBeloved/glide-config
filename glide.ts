@@ -405,7 +405,7 @@ glide.excmds.create(
 
 //4. Hint Tabs, Tab Groups, and the New Tab button with <leader>n
 //Source: ChatGPT and Me
-glide.keymaps.set("normal", "<leader>n", () => {
+glide.keymaps.set("normal", "<leader>F", () => {
     glide.hints.show({
         location: "browser-ui",
         selector: ".tabbrowser-tab, .tab-group-label, #tabs-newtab-button.toolbarbutton-1",
@@ -878,6 +878,18 @@ glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle");
   glide.keymaps.set("normal", "U", async () => {
     await glide.keys.send("<C-z>");
   });
+
+//Map leader + n to new tab
+//Source: Me
+glide.keymaps.set("normal", "<leader>n", "tab_new");
+
+//Map leader + c to reload config
+//Source: Me
+glide.keymaps.set("normal", "<leader>c", "config_reload");
+
+//Map leader + C to edit config
+//Source: Me
+glide.keymaps.set("normal", "<leader>C", "config_edit");
 
 
 
