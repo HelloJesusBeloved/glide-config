@@ -1514,6 +1514,7 @@ glide.autocmds.create(
 
 
 // 3. AI Chatbots - Safe Enter behavior
+// Removes the fear of accidentally sending a prompt when you really meant to go down a line with return
 //
 // All configured sites:
 //
@@ -1521,13 +1522,21 @@ glide.autocmds.create(
 //         → Shift+Enter
 //         → New line instead of accidentally sending.
 //
+//     Insert Ctrl+Enter
+//         → Send prompt
+//         → Enter Normal mode
+//         → Focus the largest scrollable element.
+//
+//     Insert Ctrl+Alt+Enter
+//         → Send prompt only.
+//         → Stay in Insert mode.
+//         → Do not change focus.
+//
 // Most sites:
-//     Ctrl+Enter is left untouched so the website can use its
-//     native Ctrl+Enter send behavior.
+//     Ctrl+Enter is sent directly to the website.
 //
 // Override sites:
-//     Ctrl+Enter
-//         → Enter
+//     Ctrl+Enter is converted to plain Enter.
 //
 //     Use this for sites where Ctrl+Enter does NOT natively send,
 //     but regular Enter does.
@@ -1537,13 +1546,6 @@ glide.autocmds.create(
 
 //──────────────────────────────────────────────────────────────
 // Sites with native Ctrl+Enter support
-//──────────────────────────────────────────────────────────────
-//
-// These only need:
-//
-//     Enter → Shift+Enter
-//
-// Ctrl+Enter passes through untouched.
 //──────────────────────────────────────────────────────────────
 
 const safeEnterSites: string[] = [
@@ -1600,6 +1602,33 @@ function safeEnterSiteMatches(
 }
 
 
+// Send using whichever key the current site expects.
+//
+// Native sites:
+//     Ctrl+Enter
+//
+// Override sites:
+//     Enter
+async function safeEnterSend(
+    hostname: string,
+): Promise<void> {
+    const key =
+        safeEnterSiteMatches(
+            hostname,
+            safeEnterCtrlOverrideSites,
+        )
+            ? "<Enter>"
+            : "<C-Enter>";
+
+    await glide.keys.send(
+        key,
+        {
+            skip_mappings: true,
+        },
+    );
+}
+
+
 //──────────────────────────────────────────────────────────────
 // Safe Enter mappings
 //──────────────────────────────────────────────────────────────
@@ -1639,24 +1668,42 @@ glide.autocmds.create(
 
 
         //──────────────────────────────────────────────────────
-        // Optional Ctrl+Enter → Enter override
+        // Ctrl+Enter → Send, then Normal + focus chat
         //──────────────────────────────────────────────────────
 
-        if (
-            safeEnterSiteMatches(
+        glide.buf.keymaps.set("insert", "<C-Enter>", async ({ tab_id }) => {
+            await safeEnterSend(
                 hostname,
-                safeEnterCtrlOverrideSites,
-            )
-        ) {
-            glide.buf.keymaps.set("insert", "<C-Enter>", async () => {
-                await glide.keys.send(
-                    "<Enter>",
-                    {
-                        skip_mappings: true,
-                    },
-                );
-            });
-        }
+            );
+
+            await glide.excmds.execute(
+                "mode_change normal",
+            );
+
+            await focusLargestScrollable(
+                tab_id,
+            );
+        });
+
+
+        //──────────────────────────────────────────────────────
+        // Ctrl+Alt+Enter → Send only
+        //──────────────────────────────────────────────────────
+        //
+        // Same send behavior as Ctrl+Enter, but:
+        //
+        //     Do NOT enter Normal mode.
+        //     Do NOT change focus.
+        //
+        // Useful when sending something but immediately wanting
+        // to continue typing in the same editor.
+        //──────────────────────────────────────────────────────
+
+        glide.buf.keymaps.set("insert", "<C-A-Enter>", async () => {
+            await safeEnterSend(
+                hostname,
+            );
+        });
     },
 );
 
