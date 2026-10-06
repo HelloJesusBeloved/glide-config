@@ -106,7 +106,7 @@ function decodeSafeLinksURL(safeLinksUrl: string): string | null {
 
 type SubMenuAction = () => void | Promise<void>;
 
-interface SubMenuItem {A
+interface SubMenuItem {
     description: string;
     action: SubMenuAction;
 
@@ -1554,6 +1554,7 @@ const safeEnterSites: string[] = [
     "grok.com",
     "claude.ai",
     "mistral.ai",
+    "arena.ai",
 ];
 
 
