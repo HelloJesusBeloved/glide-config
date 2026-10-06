@@ -91,7 +91,7 @@ function decodeSafeLinksURL(safeLinksUrl: string): string | null {
 //             // whatever you want
 //         },
 //     },
-// 
+//
 //     n: {
 //         description: "Search person",
 //         websites: [
@@ -120,7 +120,14 @@ function websiteMatches(websites?: string[]): boolean {
         return true;
     }
 
-    const hostname = glide.ctx.url.hostname.toLowerCase();
+    // glide.ctx.url throws if there is no current URL (e.g. very early in
+    // startup) - treat that as "no match" instead of failing the mapping.
+    let hostname: string;
+    try {
+        hostname = glide.ctx.url.hostname.toLowerCase();
+    } catch {
+        return false;
+    }
 
     return websites.some((website) => {
         const host = website
@@ -137,15 +144,31 @@ function subMenu(
     items: Record<string, SubMenuItem>,
 ) {
     for (const [key, item] of Object.entries(items)) {
+        const lhs = `${prefix}${key}`;
+
         glide.keymaps.set(
             "normal",
-            `${prefix}${key}`,
+            lhs,
             async () => {
                 if (!websiteMatches(item.websites)) {
                     return;
                 }
 
-                await item.action();
+                try {
+                    await item.action();
+                } catch (error) {
+                    // Glide turns an error thrown from a keymap callback into
+                    // a red notification bar (browser-excmds.mts:
+                    // GlideExcmds.execute() ->
+                    // add_notification("glide-excmd-error")). That bar is the
+                    // one on-screen signal that separates "the key dispatched
+                    // but the action failed" from "the key never dispatched".
+                    // We only add context to the message, then rethrow.
+                    const message =
+                        error instanceof Error ? error.message : String(error);
+
+                    throw new Error(`[${lhs}] ${item.description}: ${message}`);
+                }
             },
             {
                 description: item.description,
@@ -156,13 +179,15 @@ function subMenu(
 
 
 //5. Normalize and validate a web URL
-//Source: ChatGPT
+//Source: ChatGPT (localhost tweak: Me (claude-fable-5.1-max))
 //
 //Examples:
 // https://apple.com → valid
 // http://apple.com → valid
 // apple.com → becomes https://apple.com
 // www.apple.com/foo → becomes https://www.apple.com/foo
+// localhost:3000 → becomes https://localhost:3000
+// 10.0.1.108 → becomes https://10.0.1.108
 // sdfsdfsdjf → error
 // random text → error
 // ftp://... → error
@@ -187,8 +212,8 @@ function normalizeURL(value: string): string | null {
             return null;
         }
 
-        // Require a hostname that looks like a real domain.
-        if (!url.hostname.includes(".")) {
+        // Require a hostname that looks like a real domain (or localhost).
+        if (!url.hostname.includes(".") && url.hostname !== "localhost") {
             return null;
         }
 
@@ -203,6 +228,29 @@ function normalizeURL(value: string): string | null {
 //Source: ChatGPT
 function glideError(message: string): never {
     throw new Error(message);
+}
+
+
+//6b. Read the clipboard and turn it into a validated URL.
+// Shared by 1u / 1o so both fail the same, *visible* way (see subMenu()).
+// Note: inside the Glide config `navigator.clipboard.readText()` runs with
+// the system principal, so there is no permission prompt to worry about.
+//Source: Me
+async function readClipboardURL(): Promise<string> {
+    const clipboard = await navigator.clipboard.readText();
+    const text = clipboard.trim();
+
+    if (!text) {
+        glideError("Clipboard is empty.");
+    }
+
+    const url = normalizeURL(text);
+
+    if (!url) {
+        glideError(`Clipboard does not contain a valid URL (got: "${text.slice(0, 40)}").`);
+    }
+
+    return url;
 }
 
 
@@ -386,9 +434,9 @@ glide.excmds.create(
   async ({ args_arr }) => {
     const query = args_arr.join(" ");
 
-	await glide.excmds.execute(
-    "tab_new about:blank",
-	);
+    await glide.excmds.execute(
+      "tab_new about:blank",
+    );
 
     await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -403,7 +451,7 @@ glide.excmds.create(
 );
 
 
-//4. Hint Tabs, Tab Groups, and the New Tab button with <leader>n
+//4. Hint Tabs, Tab Groups, and the New Tab button with <leader>F
 //Source: ChatGPT and Me
 glide.keymaps.set("normal", "<leader>F", () => {
     glide.hints.show({
@@ -420,7 +468,7 @@ glide.keymaps.set("normal", "<leader>F", () => {
 glide.keymaps.set("op-pending", "w", async () => {
     await glide.keys.send("<Left>");
     await glide.keys.send("<C-Delete>");
-	await glide.keys.send("<Right>");
+    await glide.keys.send("<Right>");
 });
 
 //db
@@ -431,7 +479,7 @@ glide.keymaps.set("op-pending", "b", async () => {
 
 //d$
 glide.keymaps.set("op-pending", "$", async () => {
-	await glide.keys.send("<Left>");
+    await glide.keys.send("<Left>");
     await glide.keys.send("<S-End>");
     await glide.keys.send("<Backspace>");
 });
@@ -486,7 +534,7 @@ glide.keymaps.set("normal", "yy", async () => {
     await glide.keys.send("<C-c>");
     await glide.keys.send("<Right>");
 }, {
-	description: "Yank current line",
+    description: "Yank current line",
 });
 
 //p to paste in normal mode
@@ -560,7 +608,7 @@ glide.keymaps.set("normal", "<leader>v", async () => {
 
 //shift o to insert a line above in normal mode
   glide.keymaps.set("normal", "<S-o>", async () => {
-	await glide.excmds.execute("mode_change insert");
+    await glide.excmds.execute("mode_change insert");
     await glide.keys.send("<Home>");
     await glide.keys.send("<Enter>");
     await glide.keys.send("<Up>");
@@ -702,33 +750,33 @@ async function focusLargestScrollable(
 //8. Search in a text field containing someone's first and last name for there full name, just their first and just their last
 //Source: Me
   glide.keymaps.set("normal", "<S-n>", async () => {
-	const delay = 3000;
-	
-	await glide.excmds.execute("mode_change insert");
+    const delay = 3000;
 
-	await glide.keys.send("<C-a>");
-	await glide.keys.send("<C-c>");
-	await glide.keys.send("<Right>");
+    await glide.excmds.execute("mode_change insert");
 
-	
+    await glide.keys.send("<C-a>");
+    await glide.keys.send("<C-c>");
+    await glide.keys.send("<Right>");
+
+
     await glide.keys.send("<Enter>");
-	await new Promise(resolve => setTimeout(resolve, delay));
-	
+    await new Promise(resolve => setTimeout(resolve, delay));
+
     await glide.keys.send("<C-Backspace>");
-	await glide.keys.send("<Backspace>");
-	await glide.keys.send("<Enter>");
-	await new Promise(resolve => setTimeout(resolve, delay));
-	
-	await glide.keys.send("<C-Backspace>");
-	await glide.keys.send("<C-v>");
-	await glide.keys.send("<C-Left>");
-	await glide.keys.send("<C-Backspace>");
-	await glide.keys.send("<Enter>");
-	await new Promise(resolve => setTimeout(resolve, delay));
-	
-	await glide.keys.send("<C-a>");
-	await glide.keys.send("<C-v>");
-	await glide.keys.send("<Enter>");
+    await glide.keys.send("<Backspace>");
+    await glide.keys.send("<Enter>");
+    await new Promise(resolve => setTimeout(resolve, delay));
+
+    await glide.keys.send("<C-Backspace>");
+    await glide.keys.send("<C-v>");
+    await glide.keys.send("<C-Left>");
+    await glide.keys.send("<C-Backspace>");
+    await glide.keys.send("<Enter>");
+    await new Promise(resolve => setTimeout(resolve, delay));
+
+    await glide.keys.send("<C-a>");
+    await glide.keys.send("<C-v>");
+    await glide.keys.send("<Enter>");
 
   });
 
@@ -778,27 +826,23 @@ glide.keymaps.set("normal", "ys", () => {
         },
     });
 }, {
-	description: "Hint yankable decoded Safelinks",
+    description: "Hint yankable decoded Safelinks",
 });
 
 
 //10. Open the copied url in virustotal.com
-//Source: ChatGPT
+//Source: ChatGPT (hardening: Me (claude-fable-5.1-max))
 subMenu("1", {
     u: {
         description: "Scan clipboard URL with VirusTotal",
 
         action: async () => {
-            const clipboard = await navigator.clipboard.readText();
-            const url = normalizeURL(clipboard);
+            const url = await readClipboardURL();
 
-            if (!url) {
-                glideError("Clipboard does not contain a valid URL.");
-            }
-
-            // Open VirusTotal.
+            // Open VirusTotal. The URL is a query *parameter*, so it has to be
+            // encoded - otherwise any ?, & or # in it breaks the search.
             await browser.tabs.create({
-                url: `https://www.virustotal.com/gui/search?query=${url}`,
+                url: `https://www.virustotal.com/gui/search?query=${encodeURIComponent(url)}`,
             });
         },
     },
@@ -806,16 +850,16 @@ subMenu("1", {
 
 
 //11. Open clipboard contents in a new tab
-//Source: ChatGPT
+//Source: ChatGPT (hardening: Me (claude-fable-5.1-max))
 subMenu("1", {
     o: {
         description: "Open clipboard in a new tab",
 
         action: async () => {
-            const clipboard = await navigator.clipboard.readText();
+            const url = await readClipboardURL();
 
             await browser.tabs.create({
-                url: clipboard,
+                url,
             });
         },
     },
@@ -896,34 +940,28 @@ glide.keymaps.set("normal", "<leader>C", "config_edit");
 
 //Per Website Settings
 
-
 //1. Websites to Ignore
+//
+// NOTE: the mode change for these now lives inside the Insert-Preferred
+// UrlEnter handler below, which is the single owner of site-default modes.
+//
+// The old standalone autocmd here had two problems:
+//   1. Its regex was unanchored, so ANY url merely *containing* one of these
+//      strings (a search query, a Tailscale machine list...) switched the
+//      whole window into ignore mode.
+//   2. It relied on a cleanup function to restore normal mode. Glide only
+//      registers an autocmd cleanup after the callback resolves and runs it
+//      at the start of the *next* UrlEnter, so two quick URL changes could
+//      attach the cleanup to the wrong buffer, leaving the window stuck in
+//      ignore mode - and ignore mode is deliberately sticky (it survives tab
+//      switches and focus changes) until <S-Esc> or a config reload. That is
+//      exactly the "1u works, then silently dies, reload fixes it" symptom.
 const ignoreSites: string[] = [
-
     "10.0.1.108",
     "100.124.253.95",
-
     "vim-editor-online.vercel.app",
-
     "console.tailscale.com/admin/machines/ssh-reauth-complete"
 ];
-
-// Turn on ignore mode for matching sites.
-glide.autocmds.create(
-    "UrlEnter",
-    new RegExp(
-        ignoreSites
-            .map(site => site.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-            .join("|")
-    ),
-    async () => {
-
-        await glide.excmds.execute("mode_change ignore");
-
-        return () => glide.excmds.execute("mode_change normal");
-
-    },
-);
 
 
 //2. Websites to make Insert the default on
@@ -1042,6 +1080,12 @@ let transientReturnState:
 let hintEscapePressed = false;
 
 
+// True only while the mode owner below has put the window into ignore mode
+// for a matching ignore site. A *manual* <S-Esc> ignore leaves this false,
+// so it is never undone by a tab switch (ignore is sticky by design).
+let appliedIgnoreMode = false;
+
+
 //──────────────────────────────────────────────────────────────
 // URL helpers
 //──────────────────────────────────────────────────────────────
@@ -1070,11 +1114,62 @@ function insertPreferredHostnameMatches(
 }
 
 
+// Match either a hostname (including subdomains) or a hostname + path prefix.
+// Examples:
+//     10.0.1.108
+//     console.tailscale.com/admin/machines/ssh-reauth-complete
+//
+// Anchored on the hostname, unlike the old `url.includes(site)`, so a URL
+// that merely *mentions* one of these strings no longer matches.
+function siteEntryMatches(
+    urlString: string,
+    entry: string,
+): boolean {
+    try {
+        const url = new URL(urlString);
+        const normalizedEntry = entry
+            .replace(/^https?:\/\//, "")
+            .replace(/\/+$/, "")
+            .toLowerCase();
+
+        const slashIndex = normalizedEntry.indexOf("/");
+        const entryHost =
+            slashIndex === -1
+                ? normalizedEntry
+                : normalizedEntry.slice(0, slashIndex);
+        const entryPath =
+            slashIndex === -1
+                ? ""
+                : `/${normalizedEntry.slice(slashIndex + 1)}`;
+
+        const hostname = url.hostname.toLowerCase();
+        const hostMatches =
+            hostname === entryHost ||
+            hostname.endsWith(`.${entryHost}`);
+
+        if (!hostMatches) {
+            return false;
+        }
+
+        if (!entryPath) {
+            return true;
+        }
+
+        return (
+            url.pathname === entryPath ||
+            url.pathname.startsWith(`${entryPath}/`)
+        );
+    } catch {
+        return false;
+    }
+}
+
+
 function ignoredSiteMatches(
     url: string,
 ): boolean {
     return ignoreSites.some((site) =>
-        url.includes(site)
+        siteEntryMatches(url, site)
     );
 }
 
@@ -1115,36 +1210,77 @@ glide.keymaps.set(
 
 
 //──────────────────────────────────────────────────────────────
-// URL changes
+// URL changes - the single owner of site-default modes
+//──────────────────────────────────────────────────────────────
+//
+// UrlEnter also fires when switching tabs, so this one handler is
+// enough: it applies ignore/insert for matching sites and - crucially -
+// undoes its OWN previous mode when you leave such a site. No cleanup
+// functions, so there is no late-cleanup race to leave the window stuck.
+//
+// The pattern is /./ (not ^https?) so that leaving an insert/ignore site
+// for e.g. about:newtab still restores normal mode.
 //──────────────────────────────────────────────────────────────
 
 glide.autocmds.create(
     "UrlEnter",
-    /^https?:\/\/.+/,
+    /./,
     async ({ url }) => {
+        const wasInsertPreferredSite = insertPreferredSite;
+
         pendingInsertEscape = false;
         transientReturnState = null;
         hintEscapePressed = false;
-
         insertPreferredState = "insert";
-
 
         // Ignore sites always take priority.
         if (ignoredSiteMatches(url)) {
             insertPreferredSite = false;
+            appliedIgnoreMode = true;
+
+            if (glide.ctx.mode !== "ignore") {
+                await glide.excmds.execute(
+                    "mode_change ignore",
+                );
+            }
 
             return;
         }
 
+        // Leaving an ignore site WE switched into ignore mode:
+        // restore normal. A manual <S-Esc> ignore has
+        // appliedIgnoreMode === false and is deliberately left
+        // alone - Glide keeps ignore sticky on purpose.
+        if (appliedIgnoreMode) {
+            appliedIgnoreMode = false;
+
+            if (glide.ctx.mode === "ignore") {
+                await glide.excmds.execute(
+                    "mode_change normal",
+                );
+            }
+        }
 
         insertPreferredSite =
             insertPreferredHostnameMatches(url);
 
-
         if (!insertPreferredSite) {
+            // Leaving an Insert-Preferred site. Nothing else restores
+            // Normal any more (the old cleanup autocmd is gone), so
+            // same-tab navigation away from e.g. YouTube would otherwise
+            // leave the window in Insert forever - which makes 1u / j / f
+            // all silently dead on the new page.
+            if (
+                wasInsertPreferredSite &&
+                glide.ctx.mode === "insert"
+            ) {
+                await glide.excmds.execute(
+                    "mode_change normal",
+                );
+            }
+
             return;
         }
-
 
         await glide.excmds.execute(
             "mode_change insert",
@@ -1170,7 +1306,6 @@ glide.autocmds.create(
         ) {
             return;
         }
-
 
         //──────────────────────────────────────────────────────
         // Insert → Normal
@@ -1199,7 +1334,6 @@ glide.autocmds.create(
                 return;
             }
 
-
             // Focus/click/etc. knocked Glide out of Insert.
             // Insert is preferred, so restore it.
             insertPreferredState = "insert";
@@ -1210,7 +1344,6 @@ glide.autocmds.create(
 
             return;
         }
-
 
         //──────────────────────────────────────────────────────
         // Normal → Insert
@@ -1232,7 +1365,6 @@ glide.autocmds.create(
             return;
         }
 
-
         //──────────────────────────────────────────────────────
         // Normal → Hint
         //──────────────────────────────────────────────────────
@@ -1251,7 +1383,6 @@ glide.autocmds.create(
 
             return;
         }
-
 
         //──────────────────────────────────────────────────────
         // Hint → Normal
@@ -1279,12 +1410,10 @@ glide.autocmds.create(
                 return;
             }
 
-
             hintEscapePressed = false;
             transientReturnState = null;
 
             insertPreferredState = "insert";
-
 
             await glide.excmds.execute(
                 "mode_change insert",
@@ -1292,7 +1421,6 @@ glide.autocmds.create(
 
             return;
         }
-
 
         //──────────────────────────────────────────────────────
         // Normal → another transient mode
@@ -1317,7 +1445,6 @@ glide.autocmds.create(
 
             return;
         }
-
 
         //──────────────────────────────────────────────────────
         // Transient mode → Normal
@@ -1359,7 +1486,6 @@ glide.autocmds.create(
             return;
         }
 
-
         //──────────────────────────────────────────────────────
         // Hint Escape
         //──────────────────────────────────────────────────────
@@ -1375,11 +1501,9 @@ glide.autocmds.create(
             return;
         }
 
-
         if (mode !== "normal") {
             return;
         }
-
 
         //──────────────────────────────────────────────────────
         // Partial Normal command
@@ -1402,11 +1526,9 @@ glide.autocmds.create(
             return;
         }
 
-
         if (sequence.length === 0) {
             return;
         }
-
 
         // Escape is not used to enter Persistent Normal.
         //
@@ -1418,7 +1540,6 @@ glide.autocmds.create(
         ) {
             return;
         }
-
 
         //──────────────────────────────────────────────────────
         // Transient Normal commands
@@ -1442,7 +1563,6 @@ glide.autocmds.create(
             return;
         }
 
-
         //──────────────────────────────────────────────────────
         // Commands that make Normal persistent
         //──────────────────────────────────────────────────────
@@ -1461,7 +1581,6 @@ glide.autocmds.create(
             return;
         }
 
-
         //──────────────────────────────────────────────────────
         // Persistent Normal
         //──────────────────────────────────────────────────────
@@ -1477,7 +1596,6 @@ glide.autocmds.create(
         ) {
             return;
         }
-
 
         //──────────────────────────────────────────────────────
         // Ordinary completed Temporary-Normal command
@@ -1500,9 +1618,7 @@ glide.autocmds.create(
                     return;
                 }
 
-
                 insertPreferredState = "insert";
-
 
                 await glide.excmds.execute(
                     "mode_change insert",
@@ -1709,9 +1825,110 @@ glide.autocmds.create(
 );
 
 
+//──────────────────────────────────────────────────────────────
+// TEMPORARY diagnostics for the 1u / 1o issue
+//──────────────────────────────────────────────────────────────
+//
+// Nothing here registers a "1" mapping, so Which-Key and the "1" node in the
+// normal-mode trie are left exactly as they are in normal use.
+// Remove this whole block once the cause is confirmed.
+//
+// Note: on an Insert-Preferred site, pressing <C-A-d> in Temporary Normal
+// counts as an ordinary completed command, so the engine will drop you back
+// into Insert afterwards. Harmless for diagnosis - the report still shows
+// the mode at the moment the key was pressed.
+
+function safeHref(): string {
+    try {
+        return glide.ctx.url.href;
+    } catch {
+        return "(no url)";
+    }
+}
+
+// a. Passive probe. KeyStateChanged only fires once a key has reached the key
+//    manager *and* matched something (or cancelled a partial sequence). So
+//    when 1u fails, watch :repl:
+//      - ["1","u"] with partial=false -> the mapping resolved; the problem is
+//        in the action (and Glide shows a red bar if it threw).
+//      - nothing at all               -> the key never reached the normal-mode
+//        trie: wrong mode, a pending glide.keys.next(), or a browser modal.
+//        Press <C-A-d> to find out which.
+glide.autocmds.create("KeyStateChanged", ({ mode, sequence, partial }) => {
+    if (sequence[0] !== "1") {
+        return;
+    }
+
+    console.log("[1-prefix]", {
+        mode,
+        ctx_mode: glide.ctx.mode,
+        sequence,
+        partial,
+        url: safeHref(),
+    });
+});
+
+// b. Active probe, mapped in *every* mode so it works even when normal-mode
+//    dispatch is broken. Reports the current mode, whether 1u/1o are still in
+//    the normal-mode registry, and what the clipboard holds.
+//
+//    The report is thrown on purpose: Glide renders thrown errors as a
+//    notification bar, which is the only guaranteed on-screen channel the
+//    config has (it is logged to the console as well).
+//
+//    If <C-A-d> produces nothing at all, a glide.keys.next() promise ate the
+//    key (or a browser modal is open): press one more key and try again.
+async function keymapDiagnostic(trigger: string): Promise<never> {
+    const mode = glide.ctx.mode;
+
+    const oneMaps = glide.keymaps
+        .list("normal")
+        .filter((map) => map.lhs.startsWith("1"))
+        .map((map) => map.lhs);
+
+    let clipboard: string;
+    try {
+        const text = (await navigator.clipboard.readText()).trim();
+        clipboard = text
+            ? `"${text.slice(0, 40)}" (${normalizeURL(text) ? "valid URL" : "NOT a URL"})`
+            : "(empty)";
+    } catch (error) {
+        clipboard = `read failed: ${error}`;
+    }
+
+    const report =
+        `[diag via ${trigger}] mode=${mode}` +
+        ` | insertPreferredSite=${insertPreferredSite} state=${insertPreferredState}` +
+        ` | appliedIgnoreMode=${appliedIgnoreMode}` +
+        ` | normal 1-maps=${oneMaps.length ? oneMaps.join(",") : "NONE"}` +
+        ` | clipboard=${clipboard}` +
+        ` | ${safeHref()}`;
+
+    console.log(report);
+
+    throw new Error(report);
+}
+
+glide.keymaps.set(
+    ["normal", "insert", "visual", "op-pending", "ignore", "command", "hint"],
+    "<C-A-d>",
+    () => keymapDiagnostic("<C-A-d>"),
+    { description: "Diagnose 1u/1o (temporary)" },
+);
+
+glide.excmds.create(
+    { name: "diag", description: "Diagnose 1u/1o (temporary)" },
+    () => keymapDiagnostic(":diag"),
+);
+
+
 //3. Custom Keybinds
 
 //A. Outlook (outlook.cloud.microsoft, outlook.office.com)
+//
+// These are buffer-local mappings (glide.buf.keymaps). Glide clears them
+// itself on every URL change, so no cleanup function is needed and there is
+// no window in which a late cleanup can delete freshly re-registered mappings.
 glide.autocmds.create(
   "UrlEnter",
   /^https:\/\/outlook\.(office\.com|cloud\.microsoft)\//,
@@ -1721,17 +1938,17 @@ glide.autocmds.create(
 //Note: Gets messed up when your regular tab field is on something (resting state is not on anything, and that is what you want to have for this command to successfully change your focus
   async () => {
 
-  glide.keymaps.set("normal", ")", async () => {
+  glide.buf.keymaps.set("normal", ")", async () => {
     await glide.keys.send("<C-F6>");
   });
 
-  glide.keymaps.set("normal", "(", async () => {
+  glide.buf.keymaps.set("normal", "(", async () => {
     await glide.keys.send("<C-S-F6>");
   });
 
 //b. Select the autocorrected word from the Alt Down Arrow menu with Shift J in normal mode
 //Source: Me
-  glide.keymaps.set("normal", "<S-j>", async () => {
+  glide.buf.keymaps.set("normal", "<S-j>", async () => {
     await glide.keys.send("<A-Down>");
   });
 
@@ -1757,9 +1974,9 @@ const outlookCategories: Record<string, string[]> = {
         "KnowBe4",
     ],
 
-	// Fairmount
+    // Fairmount
     f: [
-		"Not Phishing",
+        "Not Phishing",
         "Fairmount",
     ],
 
@@ -1770,7 +1987,7 @@ const outlookCategories: Record<string, string[]> = {
 
 };
 
-glide.keymaps.set("normal", "<S-!>", async () => {
+glide.buf.keymaps.set("normal", "<S-!>", async () => {
 
     // Wait for the category key.
     const key = (await glide.keys.next()).glide_key;
@@ -1806,8 +2023,8 @@ glide.keymaps.set("normal", "<S-!>", async () => {
         // If there are more tags to enter,
         // clear the search box.
         if (i < tagsToAdd.length - 1) {
-			await glide.keys.send("<C-a>");
-			await glide.keys.send("<Backspace>");
+            await glide.keys.send("<C-a>");
+            await glide.keys.send("<Backspace>");
         }
 
     }
@@ -1817,26 +2034,14 @@ glide.keymaps.set("normal", "<S-!>", async () => {
 
 
 //Let Shift + 2 clear two categorys from an email
-  glide.keymaps.set("normal", "<S-@>", async () => {
+  glide.buf.keymaps.set("normal", "<S-@>", async () => {
     await glide.excmds.execute("mode_change insert");
     await glide.keys.send("c");
-	await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise(resolve => setTimeout(resolve, 50));
     await glide.keys.send("<Esc>");
     await glide.keys.send("<Up>");
     await glide.keys.send("<Enter>");
   });
-
-
-//Set keybinds back to normal
-  return () => {
-    safeDel("normal", ")");
-    safeDel("normal", "(");
-
-	safeDel("normal", "<S-j>");
-
-	safeDel("normal", "<S-!>");
-	safeDel("normal", "<S-@>");
-  };
 });
 
 
@@ -1990,7 +2195,7 @@ const SnippetEngine = {
         qh3: "❤️❤️❤️",
         qhaa: "🫡",
         qhac: "👏",
-		    qhach: "🤌",
+        qhach: "🤌",
         qhad: "👇",
         qhaf: "👊",
         qhah: "🫶",
