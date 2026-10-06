@@ -1513,6 +1513,154 @@ glide.autocmds.create(
 );
 
 
+// 3. AI Chatbots - Safe Enter behavior
+//
+// All configured sites:
+//
+//     Insert Enter
+//         → Shift+Enter
+//         → New line instead of accidentally sending.
+//
+// Most sites:
+//     Ctrl+Enter is left untouched so the website can use its
+//     native Ctrl+Enter send behavior.
+//
+// Override sites:
+//     Ctrl+Enter
+//         → Enter
+//
+//     Use this for sites where Ctrl+Enter does NOT natively send,
+//     but regular Enter does.
+//
+// Source: Me & ChatGPT
+
+
+//──────────────────────────────────────────────────────────────
+// Sites with native Ctrl+Enter support
+//──────────────────────────────────────────────────────────────
+//
+// These only need:
+//
+//     Enter → Shift+Enter
+//
+// Ctrl+Enter passes through untouched.
+//──────────────────────────────────────────────────────────────
+
+const safeEnterSites: string[] = [
+    "chatgpt.com",
+    "duck.ai",
+    "grok.com",
+    "claude.ai",
+    "mistral.ai",
+];
+
+
+//──────────────────────────────────────────────────────────────
+// Sites without native Ctrl+Enter support
+//──────────────────────────────────────────────────────────────
+//
+// These get:
+//
+//     Enter      → Shift+Enter
+//     Ctrl+Enter → Enter
+//
+// Move a site from safeEnterSites into this list if its native
+// Ctrl+Enter does not send the prompt.
+//──────────────────────────────────────────────────────────────
+
+const safeEnterCtrlOverrideSites: string[] = [
+    // "example.ai",
+];
+
+
+//──────────────────────────────────────────────────────────────
+// Helpers
+//──────────────────────────────────────────────────────────────
+
+const allSafeEnterSites = [
+    ...safeEnterSites,
+    ...safeEnterCtrlOverrideSites,
+];
+
+
+function safeEnterSiteMatches(
+    hostname: string,
+    sites: string[],
+): boolean {
+    hostname = hostname.toLowerCase();
+
+    return sites.some((site) => {
+        const host = site.toLowerCase();
+
+        return (
+            hostname === host ||
+            hostname.endsWith(`.${host}`)
+        );
+    });
+}
+
+
+//──────────────────────────────────────────────────────────────
+// Safe Enter mappings
+//──────────────────────────────────────────────────────────────
+
+glide.autocmds.create(
+    "UrlEnter",
+    new RegExp(
+        "^https?://([^/]*\\.)?(" +
+        allSafeEnterSites
+            .map(site =>
+                site.replace(
+                    /[.*+?^${}()|[\]\\]/g,
+                    "\\$&",
+                )
+            )
+            .join("|") +
+        ")(/|:|$)"
+    ),
+
+    async ({ url }) => {
+        const hostname =
+            new URL(url).hostname.toLowerCase();
+
+
+        //──────────────────────────────────────────────────────
+        // Enter → Shift+Enter
+        //──────────────────────────────────────────────────────
+
+        glide.buf.keymaps.set("insert", "<Enter>", async () => {
+            await glide.keys.send(
+                "<S-Enter>",
+                {
+                    skip_mappings: true,
+                },
+            );
+        });
+
+
+        //──────────────────────────────────────────────────────
+        // Optional Ctrl+Enter → Enter override
+        //──────────────────────────────────────────────────────
+
+        if (
+            safeEnterSiteMatches(
+                hostname,
+                safeEnterCtrlOverrideSites,
+            )
+        ) {
+            glide.buf.keymaps.set("insert", "<C-Enter>", async () => {
+                await glide.keys.send(
+                    "<Enter>",
+                    {
+                        skip_mappings: true,
+                    },
+                );
+            });
+        }
+    },
+);
+
+
 //3. Custom Keybinds
 
 //A. Outlook (outlook.cloud.microsoft, outlook.office.com)
@@ -1641,36 +1789,6 @@ glide.keymaps.set("normal", "<S-!>", async () => {
 	safeDel("normal", "<S-!>");
 	safeDel("normal", "<S-@>");
   };
-});
-
-
-//B. ChatGPT
-//Aria Labels:
-//aria-label="Send prompt" - Sends the prompt
-//aria-label="Stop answering" - Stop the prompt mid response
-
-glide.autocmds.create("UrlEnter", {
-    hostname: "chatgpt.com",
-}, async () => {
-
-    glide.buf.keymaps.set(
-        "normal",
-        "<Enter>",
-        async ({ tab_id }) => {
-
-            await clickElement(
-                tab_id,
-                'button[aria-label="Send"]',
-                'button[aria-label="Send prompt"]',
-                'button[aria-label="Send message"]',
-                'button[aria-label="Stop answering"]',
-                'div.flex.flex-wrap.justify-end button:last-child',
-            );
-
-            await focusLargestScrollable(tab_id);
-
-        },
-    );
 });
 
 
