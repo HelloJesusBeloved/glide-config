@@ -49,6 +49,15 @@ async function clickElement(tab_id: number, ...selectors: string[]): Promise<boo
 
 //2. safeDel - The function that makes sure a keybind is removed cleanly after the config is reloaded, reguardless of Glide's internal cleanup state
 //Source: ChatGPT
+//
+// WARNING: glide.keymaps.del() deletes the key AND every mapping that starts
+// with it. Glide normalizes shifted keys before matching, so write shifted
+// symbols as the symbol itself ("!" or "<S-!>"), never "<S-1>": "<S-1>"
+// becomes plain "1" and deletes 1u, 1o and anything else under "1".
+// (That exact line in local.ts was the cause of the 1u/1o bug.)
+//
+// For site-specific mappings prefer glide.buf.keymaps.set() instead of
+// set + cleanup: Glide clears buffer mappings itself on every URL change.
 function safeDel(
     mode: string,
     key: string,
@@ -235,7 +244,7 @@ function glideError(message: string): never {
 // Shared by 1u / 1o so both fail the same, *visible* way (see subMenu()).
 // Note: inside the Glide config `navigator.clipboard.readText()` runs with
 // the system principal, so there is no permission prompt to worry about.
-//Source: Me
+//Source: claude-fable-5.1-max
 async function readClipboardURL(): Promise<string> {
     const clipboard = await navigator.clipboard.readText();
     const text = clipboard.trim();
@@ -954,8 +963,7 @@ glide.keymaps.set("normal", "<leader>C", "config_edit");
 //      at the start of the *next* UrlEnter, so two quick URL changes could
 //      attach the cleanup to the wrong buffer, leaving the window stuck in
 //      ignore mode - and ignore mode is deliberately sticky (it survives tab
-//      switches and focus changes) until <S-Esc> or a config reload. That is
-//      exactly the "1u works, then silently dies, reload fixes it" symptom.
+//      switches and focus changes) until <S-Esc> or a config reload.
 const ignoreSites: string[] = [
     "10.0.1.108",
     "100.124.253.95",
@@ -1822,103 +1830,6 @@ glide.autocmds.create(
             );
         });
     },
-);
-
-
-//──────────────────────────────────────────────────────────────
-// TEMPORARY diagnostics for the 1u / 1o issue
-//──────────────────────────────────────────────────────────────
-//
-// Nothing here registers a "1" mapping, so Which-Key and the "1" node in the
-// normal-mode trie are left exactly as they are in normal use.
-// Remove this whole block once the cause is confirmed.
-//
-// Note: on an Insert-Preferred site, pressing <C-A-d> in Temporary Normal
-// counts as an ordinary completed command, so the engine will drop you back
-// into Insert afterwards. Harmless for diagnosis - the report still shows
-// the mode at the moment the key was pressed.
-
-function safeHref(): string {
-    try {
-        return glide.ctx.url.href;
-    } catch {
-        return "(no url)";
-    }
-}
-
-// a. Passive probe. KeyStateChanged only fires once a key has reached the key
-//    manager *and* matched something (or cancelled a partial sequence). So
-//    when 1u fails, watch :repl:
-//      - ["1","u"] with partial=false -> the mapping resolved; the problem is
-//        in the action (and Glide shows a red bar if it threw).
-//      - nothing at all               -> the key never reached the normal-mode
-//        trie: wrong mode, a pending glide.keys.next(), or a browser modal.
-//        Press <C-A-d> to find out which.
-glide.autocmds.create("KeyStateChanged", ({ mode, sequence, partial }) => {
-    if (sequence[0] !== "1") {
-        return;
-    }
-
-    console.log("[1-prefix]", {
-        mode,
-        ctx_mode: glide.ctx.mode,
-        sequence,
-        partial,
-        url: safeHref(),
-    });
-});
-
-// b. Active probe, mapped in *every* mode so it works even when normal-mode
-//    dispatch is broken. Reports the current mode, whether 1u/1o are still in
-//    the normal-mode registry, and what the clipboard holds.
-//
-//    The report is thrown on purpose: Glide renders thrown errors as a
-//    notification bar, which is the only guaranteed on-screen channel the
-//    config has (it is logged to the console as well).
-//
-//    If <C-A-d> produces nothing at all, a glide.keys.next() promise ate the
-//    key (or a browser modal is open): press one more key and try again.
-async function keymapDiagnostic(trigger: string): Promise<never> {
-    const mode = glide.ctx.mode;
-
-    const oneMaps = glide.keymaps
-        .list("normal")
-        .filter((map) => map.lhs.startsWith("1"))
-        .map((map) => map.lhs);
-
-    let clipboard: string;
-    try {
-        const text = (await navigator.clipboard.readText()).trim();
-        clipboard = text
-            ? `"${text.slice(0, 40)}" (${normalizeURL(text) ? "valid URL" : "NOT a URL"})`
-            : "(empty)";
-    } catch (error) {
-        clipboard = `read failed: ${error}`;
-    }
-
-    const report =
-        `[diag via ${trigger}] mode=${mode}` +
-        ` | insertPreferredSite=${insertPreferredSite} state=${insertPreferredState}` +
-        ` | appliedIgnoreMode=${appliedIgnoreMode}` +
-        ` | normal 1-maps=${oneMaps.length ? oneMaps.join(",") : "NONE"}` +
-        ` | clipboard=${clipboard}` +
-        ` | ${safeHref()}`;
-
-    console.log(report);
-
-    throw new Error(report);
-}
-
-glide.keymaps.set(
-    ["normal", "insert", "visual", "op-pending", "ignore", "command", "hint"],
-    "<C-A-d>",
-    () => keymapDiagnostic("<C-A-d>"),
-    { description: "Diagnose 1u/1o (temporary)" },
-);
-
-glide.excmds.create(
-    { name: "diag", description: "Diagnose 1u/1o (temporary)" },
-    () => keymapDiagnostic(":diag"),
 );
 
 
