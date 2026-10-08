@@ -473,11 +473,21 @@ glide.keymaps.set("normal", "<leader>F", () => {
 //5. Adding more vim motions dw, db, d$, d0, yy, p
 //Source: Me
 
-//dw
+//dw - Cut from the cursor through the next word
+//Source: ChatGPT
+safeDel("op-pending", "w");
+
 glide.keymaps.set("op-pending", "w", async () => {
-    await glide.keys.send("<Left>");
-    await glide.keys.send("<C-Delete>");
-    await glide.keys.send("<Right>");
+    try {
+        await glide.keys.send(
+            "<Left><C-S-Right><C-x><Right>",
+            { skip_mappings: true },
+        );
+    } finally {
+        await glide.excmds.execute(
+            "mode_change normal",
+        );
+    }
 });
 
 //db
@@ -516,7 +526,7 @@ glide.keymaps.set("op-pending", "<S-g>", async () => {
     }
 });
 
-//dd - Delete the current line, including the newline
+//dd - Cut the current line, then delete the newline
 //Source: ChatGPT
 safeDel("normal", "dd");
 safeDel("op-pending", "d");
@@ -524,7 +534,7 @@ safeDel("op-pending", "d");
 glide.keymaps.set("op-pending", "d", async () => {
     try {
         await glide.keys.send(
-            "<Home><S-End><Delete><Delete>",
+            "<Home><S-End><C-x><Delete>",
             { skip_mappings: true },
         );
     } finally {
