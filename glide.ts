@@ -1758,6 +1758,7 @@ const safeEnterSites: string[] = [
     "claude.ai",
     "mistral.ai",
     "arena.ai",
+	"lumo.proton.me"
 ];
 
 
