@@ -655,7 +655,7 @@ glide.keymaps.set(
         );
 
         await glide.keys.send(
-            "<End><Enter>",
+            "<End><S-Enter>",
             {
                 skip_mappings: true,
             },
