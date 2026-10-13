@@ -1975,6 +1975,12 @@ const outlookCategories: Record<string, string[]> = {
         "Not Phishing",
     ],
 
+	// Not Phishing, Returned
+    r: [
+        "Not Phishing",
+		"Returned",
+    ],
+
 };
 
 glide.buf.keymaps.set("normal", "<S-!>", async () => {
