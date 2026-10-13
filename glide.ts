@@ -556,6 +556,30 @@ glide.keymaps.set("normal", "yy", async () => {
     description: "Yank current line",
 });
 
+//yG - Copy the current line and everything below it
+//Source: ChatGPT
+safeDel("normal", "yG");
+
+glide.keymaps.set("normal", "yG", async () => {
+    // Select the current line through the end of the text.
+    await glide.keys.send(
+        "<Home><C-S-End>",
+        { skip_mappings: true },
+    );
+
+    // Copy the selected text.
+    await glide.keys.send(
+        "<C-c>",
+        { skip_mappings: true },
+    );
+
+    // Collapse the selection without leaving the editor.
+    await glide.keys.send(
+        "<Left>",
+        { skip_mappings: true },
+    );
+});
+
 //p to paste in normal mode
 glide.keymaps.set("normal", "p", async () => {
     await glide.keys.send("<C-v>");
