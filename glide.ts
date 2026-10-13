@@ -667,7 +667,9 @@ glide.keymaps.set(
 );
 
 
-//6. Set the current tab's wake lock to on (make's so the computer doesn't sleep)
+//6. Tabs
+
+//A. Set the current tab's wake lock to on (make's so the computer doesn't sleep)
 //Source: ChatGPT
 let wakeLock: WakeLockSentinel | undefined;
 
@@ -703,7 +705,74 @@ glide.keymaps.set("normal", "<leader>1", async ({ tab_id }) => {
     );
 
     console.log(result);
+});
 
+//B. tm - Move current tab to a new window
+// Source: ChatGPT
+glide.keymaps.set("normal", "tm", async ({ tab_id }) => {
+    await browser.windows.create({
+        tabId: tab_id,
+    });
+}, {
+    description: "Move tab to new window",
+});
+
+//C. tu - Unload current tab after switching to another tab
+// Source: ChatGPT
+glide.keymaps.set("normal", "tu", async ({ tab_id }) => {
+    const tabs = await browser.tabs.query({
+        currentWindow: true,
+    });
+
+    const current = tabs.find(tab => tab.id === tab_id);
+
+    if (!current) {
+        return;
+    }
+
+    // Find another tab in the same window.
+    const nextTab = tabs.find(
+        tab => tab.id !== tab_id && !tab.hidden,
+    );
+
+    if (!nextTab?.id) {
+        throw new Error(
+            "Cannot unload the only tab in the window.",
+        );
+    }
+
+    // Switch first, then unload the original.
+    await browser.tabs.update(nextTab.id, {
+        active: true,
+    });
+
+    await glide.tabs.unload(tab_id);
+}, {
+    description: "Unload current tab",
+});
+
+//D. tU - Unload all tabs except the current one
+//Source: ChatGPT
+glide.keymaps.set("normal", "tU", async ({ tab_id }) => {
+    const tabs = await browser.tabs.query({
+        currentWindow: true,
+    });
+
+    const unloadIds = tabs
+        .filter(tab =>
+            tab.id !== undefined &&
+            tab.id !== tab_id &&
+            !tab.discarded
+        )
+        .map(tab => tab.id!);
+
+    if (unloadIds.length === 0) {
+        return;
+    }
+
+    await browser.tabs.discard(unloadIds);
+}, {
+    description: "Unload all other tabs",
 });
 
 
