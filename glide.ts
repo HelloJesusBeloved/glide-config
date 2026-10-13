@@ -781,7 +781,7 @@ glide.keymaps.set("normal", "tU", async ({ tab_id }) => {
 
 glide.keymaps.set(
     "normal",
-    "e",
+    "u",
     ({ tab_id }) =>
         focusLargestScrollable(tab_id),
 );
