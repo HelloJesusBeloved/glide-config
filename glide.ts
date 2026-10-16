@@ -800,6 +800,831 @@ glide.keymaps.set("normal", "tU", async ({ tab_id }) => {
 });
 
 
+ //E. ts — Send current tab to a Firefox Sync device.
+ // Source: Me & ChatGPT
+ //
+ // Uses Glide's mirrored browser DOM and Firefox's
+ // native keyboard navigation.
+ // No privileged Firefox APIs or additional permissions.
+
+
+ //─────────────────────────────────────────────────────────────
+ // Configuration
+ //─────────────────────────────────────────────────────────────
+
+ // Controls the order shown in Glide's device picker.
+ // The first device is selected by default.
+ const sendTabDeviceOrder = [
+     "iPhone 17 Pro",
+     "Miniature Superman",
+     "Metro Man",
+     "deck’s Firefox on david",
+     "Glide Kasm Ubuntu Jammy VPN",
+ ];
+
+ // Shortcuts for searching the picker.
+ const sendTabAliases: Record<string, string> = {
+     "iPhone 17 Pro": "i",
+     "Miniature Superman": "ms",
+     "Metro Man": "mm",
+     "deck’s Firefox on david": "d",
+     "Glide Kasm Ubuntu Jammy VPN": "k",
+ };
+
+ // Leave true until you have tested the new navigation.
+ const sendTabDryRun = false;
+ const sendTabDebug = true;
+
+
+ //─────────────────────────────────────────────────────────────
+ // Device discovery
+ //─────────────────────────────────────────────────────────────
+
+ type SendTabDevice = {
+     name: string;
+     occurrence: number;
+     index: number;
+     button: Element;
+ };
+
+ function sendTabGetDevices(): SendTabDevice[] {
+     const list = document.getElementById(
+         "PanelUI-fxa-menu-devices-list",
+     );
+
+     const counts = new Map<string, number>();
+     const found: SendTabDevice[] = [];
+
+     const buttons = list?.querySelectorAll(
+         '[data-l10n-id="fxa-menu-device-send-current-page"]',
+     ) ?? [];
+
+     for (const button of buttons) {
+         let header = button.previousElementSibling;
+
+         while (
+             header &&
+             !header.classList.contains(
+                 "PanelUI-fxa-menu-device-header",
+             )
+         ) {
+             header = header.previousElementSibling;
+         }
+
+         const name = header?.textContent?.trim();
+
+         if (!name) continue;
+
+         const occurrence =
+             (counts.get(name) ?? 0) + 1;
+
+         counts.set(name, occurrence);
+
+         found.push({
+             name,
+             occurrence,
+             index: found.length,
+             button,
+         });
+     }
+
+     return found;
+ }
+
+ function sendTabResolve(
+     selected: SendTabDevice,
+ ): SendTabDevice | null {
+     const current = sendTabGetDevices();
+
+     const match = current.find(device =>
+         device.name === selected.name &&
+         device.occurrence === selected.occurrence
+     );
+
+     if (!match) return null;
+
+     // Identically named devices cannot be safely identified
+     // if their displayed ordering changes.
+     if (
+         current.some(device =>
+             device !== match &&
+             device.name === selected.name
+         ) &&
+         match.index !== selected.index
+     ) {
+         throw new Error(
+             "Duplicate device order changed. Reopen ts.",
+         );
+     }
+
+     return match;
+ }
+
+
+ //─────────────────────────────────────────────────────────────
+ // Observe application menu open/closed state
+ //─────────────────────────────────────────────────────────────
+
+ const sendTabPopup =
+     document.getElementById("appMenu-popup");
+
+ const sendTabDeviceList =
+     document.getElementById(
+         "PanelUI-fxa-menu-devices-list",
+     );
+
+ let sendTabPopupEventOpen = false;
+
+ sendTabPopup?.addEventListener("popupshown", () => {
+     sendTabPopupEventOpen = true;
+ });
+
+ sendTabPopup?.addEventListener("popuphidden", () => {
+     sendTabPopupEventOpen = false;
+ });
+
+ function sendTabMenuOpen(): boolean {
+     const panel =
+         document.getElementById("appMenu-popup");
+
+     return !!panel && (
+         panel.getAttribute("panelopen") === "true" ||
+         panel.getAttribute("state") === "open" ||
+         sendTabPopupEventOpen
+     );
+ }
+
+
+ //─────────────────────────────────────────────────────────────
+ // Observe actual Firefox menu focus
+ //─────────────────────────────────────────────────────────────
+
+ let sendTabFocused: Element | null = null;
+ let sendTabFocusSerial = 0;
+
+ const sendTabWatched = new WeakSet<Element>();
+
+ function sendTabWatchFocus(): void {
+     const popup =
+         document.getElementById("appMenu-popup");
+
+     if (!popup) return;
+
+     for (
+         const element of
+         popup.querySelectorAll("toolbarbutton")
+     ) {
+         if (sendTabWatched.has(element)) {
+             continue;
+         }
+
+         sendTabWatched.add(element);
+
+         element.addEventListener("focus", () => {
+             sendTabFocused = element;
+             sendTabFocusSerial++;
+
+             if (sendTabDebug) {
+                 console.log(
+                     "[SendTab Focus]",
+                     element.id ||
+                     element.getAttribute("label") ||
+                     element.textContent?.trim() ||
+                     "(unlabelled)",
+                 );
+             }
+         }, true);
+     }
+ }
+
+ if (sendTabPopup) {
+     new MutationObserver(
+         sendTabWatchFocus,
+     ).observe(sendTabPopup, {
+         childList: true,
+         subtree: true,
+     });
+ }
+
+ sendTabWatchFocus();
+
+
+ //─────────────────────────────────────────────────────────────
+ // Watch nested device-list changes
+ //─────────────────────────────────────────────────────────────
+
+ // Unlike the previous version, mutations alone will
+ // NEVER restart the keyboard navigation.
+ //
+ // They're only used to determine when the menu has
+ // become sufficiently quiet to begin scanning.
+
+ let sendTabListRevision = 0;
+ let sendTabLastListChange = 0;
+
+ if (sendTabDeviceList) {
+     new MutationObserver(records => {
+         if (
+             records.some(record =>
+                 record.type === "childList"
+             )
+         ) {
+             sendTabListRevision++;
+             sendTabLastListChange = Date.now();
+         }
+     }).observe(sendTabDeviceList, {
+         childList: true,
+         subtree: true,
+     });
+ }
+
+
+ //─────────────────────────────────────────────────────────────
+ // Keyboard helpers
+ //─────────────────────────────────────────────────────────────
+
+ const sendTabPause = (
+     ms: number,
+ ): Promise<void> =>
+     new Promise(resolve => setTimeout(resolve, ms));
+
+ async function sendTabKey(
+     key: string,
+ ): Promise<void> {
+     await glide.keys.send(
+         key,
+         { skip_mappings: true },
+     );
+ }
+
+ async function sendTabCloseMenu(): Promise<void> {
+     for (
+         let i = 0;
+         i < 3 && sendTabMenuOpen();
+         i++
+     ) {
+         await sendTabKey("<Esc>");
+         await sendTabPause(100);
+     }
+ }
+
+
+ //─────────────────────────────────────────────────────────────
+ // Open the hamburger menu and VERIFY it opened
+ //─────────────────────────────────────────────────────────────
+
+ async function sendTabOpenMenu(): Promise<void> {
+     if (sendTabMenuOpen()) {
+         return;
+     }
+
+     for (
+         let attempt = 1;
+         attempt <= 3;
+         attempt++
+     ) {
+         try {
+             glide.hints.show({
+                 location: "browser-ui",
+                 selector: "#PanelUI-menu-button",
+                 auto_activate: true,
+             });
+         } catch (error) {
+             if (sendTabDebug) {
+                 console.warn(
+                     "[SendTab] Hint error",
+                     error,
+                 );
+             }
+         }
+
+         // Do not send any keyboard navigation until
+         // Firefox confirms the popup is open.
+         for (let i = 0; i < 32; i++) {
+             if (sendTabMenuOpen()) {
+                 await sendTabPause(90);
+                 return;
+             }
+
+             await sendTabPause(35);
+         }
+
+         if (sendTabDebug) {
+             console.warn(
+                 "[SendTab] Menu not open; retry",
+                 attempt,
+             );
+         }
+     }
+
+     throw new Error(
+         "Hamburger menu did not open (panelopen=" +
+         sendTabPopup?.getAttribute("panelopen") +
+         ", state=" +
+         sendTabPopup?.getAttribute("state") +
+         "). No arrow keys were sent."
+     );
+ }
+
+
+ //─────────────────────────────────────────────────────────────
+ // Move Down and observe the real focused element
+ //─────────────────────────────────────────────────────────────
+
+ async function sendTabDown(): Promise<Element | null> {
+     for (let attempt = 0; attempt < 2; attempt++) {
+         if (!sendTabMenuOpen()) {
+             throw new Error(
+                 "Firefox menu closed; keyboard navigation stopped.",
+             );
+         }
+
+         const before = sendTabFocusSerial;
+
+         await sendTabKey("<Down>");
+
+         for (let tick = 0; tick < 16; tick++) {
+             if (
+                 sendTabFocusSerial > before
+             ) {
+                 await sendTabPause(35);
+                 return sendTabFocused;
+             }
+
+             await sendTabPause(35);
+         }
+     }
+
+     return null;
+ }
+
+
+ //─────────────────────────────────────────────────────────────
+ // Open the Mozilla account panel
+ //─────────────────────────────────────────────────────────────
+
+ function sendTabInAccountView(
+     element: Element | null,
+ ): boolean {
+     return !!element?.closest("#PanelUI-fxa");
+ }
+
+ async function sendTabOpenAccountMenu(): Promise<void> {
+     await sendTabOpenMenu();
+
+     for (let step = 0; step < 35; step++) {
+         const focused = await sendTabDown();
+
+         if (!focused) {
+             throw new Error(
+                 "Menu open, but focus did not advance.",
+             );
+         }
+
+         if (sendTabInAccountView(focused)) {
+             return;
+         }
+
+         if (
+             focused.id === "appMenu-fxa-label2"
+         ) {
+             const view =
+                 document.getElementById("PanelUI-fxa");
+
+             let viewShown = false;
+
+             const onShown = () => {
+                 viewShown = true;
+             };
+
+             view?.addEventListener(
+                 "ViewShown",
+                 onShown,
+             );
+
+             try {
+                 await sendTabKey("<Enter>");
+
+                 // Prefer Firefox's ViewShown readiness
+                 // signal. Use a bounded fallback if Glide
+                 // does not forward the event.
+                 for (
+                     let i = 0;
+                     i < 16 && !viewShown;
+                     i++
+                 ) {
+                     await sendTabPause(25);
+                 }
+
+                 if (sendTabDebug) {
+                     console.log(
+                         "[SendTab] Account view",
+                         viewShown
+                             ? "ViewShown"
+                             : "event unavailable",
+                     );
+                 }
+             } finally {
+                 view?.removeEventListener(
+                     "ViewShown",
+                     onShown,
+                 );
+             }
+
+             return;
+         }
+     }
+
+     throw new Error(
+         "Mozilla account entry was not reached.",
+     );
+ }
+
+
+ //─────────────────────────────────────────────────────────────
+ // Cold and warm readiness profiles
+ //─────────────────────────────────────────────────────────────
+
+ let sendTabLastSuccessAt = 0;
+
+// Wait for Firefox's device list to become ready.
+// Fast on warm runs; watch for the second refresh on cold runs.
+// Source: Me & ChatGPT
+
+async function sendTabWaitForList(
+    selected: SendTabDevice,
+    revisionBeforeOpen: number,
+): Promise<void> {
+    const started = Date.now();
+
+    const warm =
+        started - sendTabLastSuccessAt < 20000;
+
+    const quietNeeded = warm ? 150 : 250;
+
+    // Cold runs without a second update use a fallback.
+    const coldFallback = 1200;
+    const maxWait = 9000;
+
+    if (sendTabDebug) {
+        console.log(
+            "[SendTab] Readiness:",
+            warm ? "warm" : "cold",
+        );
+    }
+
+    while (Date.now() - started < maxWait) {
+        const now = Date.now();
+
+        const updates =
+            Math.max(
+                0,
+                sendTabListRevision - revisionBeforeOpen,
+            );
+
+        const target = sendTabResolve(selected);
+
+        const quietFor =
+            now - Math.max(
+                started,
+                sendTabLastListChange,
+            );
+
+        // Cold: prefer observing the second refresh.
+        // Warm: one fresh update is normally sufficient.
+        const refreshReady =
+            warm
+                ? updates >= 1
+                : updates >= 2 ||
+                  (updates >= 1 &&
+                   now - started >= coldFallback);
+
+        if (
+            target &&
+            refreshReady &&
+            quietFor >= quietNeeded
+        ) {
+            if (sendTabDebug) {
+                console.log(
+                    "[SendTab] Device list ready:",
+                    {
+                        mode: warm ? "warm" : "cold",
+                        elapsed: now - started,
+                        updates,
+                        quietFor,
+                    },
+                );
+            }
+
+            return;
+        }
+
+        await sendTabPause(30);
+    }
+
+    throw new Error(
+        "Firefox device list did not become ready.",
+    );
+}
+
+
+ //─────────────────────────────────────────────────────────────
+ // Navigate to the selected device and send
+ //─────────────────────────────────────────────────────────────
+
+ let sendTabBusy = false;
+
+ async function sendTabSend(
+     selected: SendTabDevice,
+     tabId: number,
+ ): Promise<void> {
+     if (sendTabBusy) return;
+
+     sendTabBusy = true;
+
+     let sent = false;
+
+     try {
+         await glide.commandline.close();
+
+         if (
+             (await glide.tabs.active()).id !== tabId
+         ) {
+             throw new Error(
+                 "Active tab changed. Send cancelled.",
+             );
+         }
+
+         // Capture the revision before Firefox starts refreshing.
+		 const revisionBeforeOpen = sendTabListRevision;
+
+		 await sendTabOpenAccountMenu();
+		 await sendTabWaitForList(selected, revisionBeforeOpen);
+
+         let currentButton: Element | null = null;
+         let seen = new Map<Element, number>();
+
+         const started = Date.now();
+
+         // The old implementation restarted on every
+         // device-list revision.
+         //
+         // This version continues navigating through
+         // unrelated UI changes.
+         //
+         // If the selected device's Send button itself is
+         // replaced, update its reference and continue.
+         for (
+             let step = 0;
+             step < 220 &&
+             Date.now() - started < 18000;
+             step++
+         ) {
+             if (!sendTabMenuOpen()) {
+                 throw new Error(
+                     "Firefox closed the account menu.",
+                 );
+             }
+
+             const targetBefore =
+                 sendTabResolve(selected);
+
+             if (!targetBefore) {
+                 await sendTabPause(90);
+                 continue;
+             }
+
+             if (
+                 currentButton !== targetBefore.button
+             ) {
+                 currentButton = targetBefore.button;
+                 seen = new Map<Element, number>();
+
+                 if (sendTabDebug) {
+                     console.log(
+                         "[SendTab] Target refreshed; continuing scan",
+                     );
+                 }
+             }
+
+             const focused = await sendTabDown();
+
+             if (!focused) {
+                 await sendTabPause(100);
+                 continue;
+             }
+
+             const targetAfter =
+                 sendTabResolve(selected);
+
+             if (
+                 !targetAfter ||
+                 targetAfter.button !== currentButton
+             ) {
+                 // UI was rebuilt. Keep navigating rather
+                 // than restarting the entire scan.
+                 continue;
+             }
+
+             if (
+                 focused === targetAfter.button
+             ) {
+                 // Ensure the target hasn't been replaced
+                 // immediately after receiving focus.
+                 await sendTabPause(110);
+
+                 const confirmed =
+                     sendTabResolve(selected);
+
+                 if (
+                     !confirmed ||
+                     confirmed.button !== focused ||
+                     sendTabFocused !== focused ||
+                     !sendTabMenuOpen() ||
+                     (await glide.tabs.active()).id !== tabId
+                 ) {
+                     continue;
+                 }
+
+                 sendTabLastSuccessAt = Date.now();
+
+                 console.log(
+                     "[SendTab] Found:",
+                     selected.name,
+                     selected.occurrence,
+                     sendTabDryRun
+                         ? "(dry run)"
+                         : "",
+                 );
+
+                 if (!sendTabDryRun) {
+                     await sendTabKey("<Enter>");
+                     sent = true;
+                 }
+
+                 return;
+             }
+
+             // Detect repeated complete cycles.
+             // Allow a few repetitions because Firefox
+             // may reset focus during a device refresh.
+             const visits =
+                 (seen.get(focused) ?? 0) + 1;
+
+             seen.set(focused, visits);
+
+             if (visits >= 4) {
+                 throw new Error(
+                     "Send button exists but is not keyboard-reachable.",
+                 );
+             }
+         }
+
+         throw new Error(
+             "Timed out navigating to the selected Send button.",
+         );
+     } finally {
+         if (!sent) {
+             await sendTabCloseMenu();
+         }
+
+         sendTabBusy = false;
+     }
+ }
+
+
+ //─────────────────────────────────────────────────────────────
+ // ts — Show Glide's native device picker
+ //─────────────────────────────────────────────────────────────
+
+ safeDel("normal", "ts");
+
+ glide.keymaps.set("normal", "ts", async ({ tab_id }) => {
+     let devices = sendTabGetDevices();
+
+     // On first startup Firefox may not have generated
+     // its device list yet.
+     if (!devices.length) {
+         try {
+             await sendTabOpenAccountMenu();
+
+             for (
+                 let i = 0;
+                 i < 100 && !devices.length;
+                 i++
+             ) {
+                 await sendTabPause(50);
+                 devices = sendTabGetDevices();
+             }
+         } finally {
+             await sendTabCloseMenu();
+         }
+     }
+
+     if (!devices.length) {
+         throw new Error(
+             "No Firefox Sync Send Tab devices found.",
+         );
+     }
+
+     const rank = (name: string): number => {
+         const index =
+             sendTabDeviceOrder.indexOf(name);
+
+         return index < 0
+             ? Number.MAX_SAFE_INTEGER
+             : index;
+     };
+
+     const ordered = [...devices].sort(
+         (a, b) =>
+             rank(a.name) - rank(b.name) ||
+             a.index - b.index
+     );
+
+     const counts = new Map<string, number>();
+
+     for (const device of devices) {
+         counts.set(
+             device.name,
+             (counts.get(device.name) ?? 0) + 1,
+         );
+     }
+
+     const choices = ordered.map(device => {
+         const base =
+             sendTabAliases[device.name] ??
+             String(device.index + 1);
+
+         const alias =
+             (counts.get(device.name) ?? 0) > 1
+                 ? `${base}${device.occurrence}`
+                 : base;
+
+         return {
+             device,
+             alias,
+         };
+     });
+
+     await glide.commandline.show({
+         title: "Send current tab to device",
+
+         options: choices.map(choice => ({
+             label:
+                 `${choice.alias} — ${choice.device.name}`,
+
+             description:
+                 `Firefox device ${choice.device.index + 1}`,
+
+             matches({ input }) {
+                 const query =
+                     input.trim().toLowerCase();
+
+                 if (!query) {
+                     return true;
+                 }
+
+                 // Exact shorthand takes priority.
+                 if (
+                     choices.some(item =>
+                         item.alias.toLowerCase() === query
+                     )
+                 ) {
+                     return (
+                         choice.alias.toLowerCase() ===
+                         query
+                     );
+                 }
+
+                 return (
+                     choice.alias
+                         .toLowerCase()
+                         .startsWith(query) ||
+                     choice.device.name
+                         .toLowerCase()
+                         .includes(query)
+                 );
+             },
+
+             execute() {
+                 void sendTabSend(
+                     choice.device,
+                     tab_id,
+                 ).catch(error => {
+                     console.error(
+                         "[SendTab]",
+                         error,
+                     );
+                 });
+             },
+         })),
+     });
+ }, {
+     description: "Send current tab to Firefox Sync device",
+ });
+
+
 //7. Focus the largest scrollable element on the page
 //Source: ChatGPT
 
