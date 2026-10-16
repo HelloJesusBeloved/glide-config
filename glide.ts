@@ -799,7 +799,6 @@ glide.keymaps.set("normal", "tU", async ({ tab_id }) => {
     description: "Unload all other tabs",
 });
 
-
  //E. ts — Send current tab to a Firefox Sync device.
  // Source: Me & ChatGPT
  //
@@ -1623,6 +1622,314 @@ async function sendTabWaitForList(
  }, {
      description: "Send current tab to Firefox Sync device",
  });
+
+
+//F. tcc - Clear current site cookies and data using Firefox's native UI
+//Source: Me & ChatGPT
+
+safeDel("normal", "tcc");
+
+glide.keymaps.set("normal", "tcc", async ({ tab_id }) => {
+    const pause = (ms: number) =>
+        new Promise<void>(resolve => setTimeout(resolve, ms));
+
+    const press = (key: string) =>
+        glide.keys.send(key, { skip_mappings: true });
+
+    const panelIsOpen = () =>
+        document.getElementById(
+            "trust-icon-container",
+        )?.hasAttribute("open") ?? false;
+
+    const isDisabled = (element: Element) =>
+        element.hasAttribute("disabled") &&
+        element.getAttribute("disabled") !== "false";
+
+    let completed = false;
+
+    try {
+        //──────────────────────────────────────────────────────
+        // 1. Open Firefox's shield panel
+        //──────────────────────────────────────────────────────
+
+        glide.hints.show({
+            location: "browser-ui",
+            selector: "#trust-icon-container",
+            auto_activate: true,
+        });
+
+        let panelReady = false;
+
+        for (let i = 0; i < 50; i++) {
+            const popup = document.getElementById(
+                "trustpanel-popup",
+            );
+
+            if (panelIsOpen() && popup) {
+                panelReady = true;
+                break;
+            }
+
+            await pause(40);
+        }
+
+        if (!panelReady) {
+            console.warn(
+                "[tcc] Trust panel did not open.",
+            );
+            return;
+        }
+
+        await pause(120);
+
+        //──────────────────────────────────────────────────────
+        // 2. Locate the Clear Cookies button
+        //──────────────────────────────────────────────────────
+
+        const clearButton = document.getElementById(
+            "trustpanel-clear-cookies-button",
+        );
+
+        if (!clearButton) {
+            console.warn(
+                "[tcc] Clear Cookies button not found.",
+            );
+            return;
+        }
+
+        if (isDisabled(clearButton)) {
+            console.log(
+                "[tcc] No site data available to clear.",
+            );
+            return;
+        }
+
+        let clearFocused = false;
+
+        const onClearFocus = () => {
+            clearFocused = true;
+        };
+
+        clearButton.addEventListener(
+            "focus",
+            onClearFocus,
+            true,
+        );
+
+        try {
+            // Navigate by button identity, not position.
+            for (let i = 0; i < 15; i++) {
+                if (!panelIsOpen()) {
+                    console.warn(
+                        "[tcc] Trust panel closed.",
+                    );
+                    return;
+                }
+
+                clearFocused = false;
+
+                await press("<Down>");
+                await pause(80);
+
+                if (clearFocused) {
+                    console.log(
+                        `[tcc] Found Clear Cookies after ${i + 1} Down presses.`,
+                    );
+                    break;
+                }
+            }
+
+            if (!clearFocused || isDisabled(clearButton)) {
+                console.warn(
+                    "[tcc] Clear Cookies could not be selected.",
+                );
+                return;
+            }
+
+            //──────────────────────────────────────────────────
+            // 3. Prepare to observe the final Clear button
+            //──────────────────────────────────────────────────
+
+            const confirmView = document.getElementById(
+                "trustpanel-clearcookiesView",
+            );
+
+            const confirmButton = document.getElementById(
+                "trustpanel-clear-cookie-clear",
+            );
+
+            if (!confirmView || !confirmButton) {
+                console.warn(
+                    "[tcc] Confirmation controls not found.",
+                );
+                return;
+            }
+
+            let confirmFocused = false;
+
+            const onConfirmFocus = () => {
+                confirmFocused = true;
+                console.log(
+                    "[tcc] Final Clear button focused!",
+                );
+            };
+
+            // Register before opening the confirmation
+            // so we don't miss an initial focus event.
+            confirmButton.addEventListener(
+                "focus",
+                onConfirmFocus,
+                true,
+            );
+
+            try {
+                //──────────────────────────────────────────────
+                // 4. Open the confirmation screen
+                //──────────────────────────────────────────────
+
+                await press("<Enter>");
+                await pause(200);
+
+                if (!panelIsOpen()) {
+                    console.warn(
+                        "[tcc] Confirmation panel closed unexpectedly.",
+                    );
+                    return;
+                }
+
+                //──────────────────────────────────────────────
+                // 5. Find the final Clear button
+                //──────────────────────────────────────────────
+
+                for (
+                    let i = 0;
+                    i < 6 && !confirmFocused;
+                    i++
+                ) {
+                    if (!panelIsOpen()) {
+                        console.warn(
+                            "[tcc] Trust panel closed.",
+                        );
+                        return;
+                    }
+
+                    await press("<Down>");
+                    await pause(80);
+                }
+
+                if (!confirmFocused) {
+                    console.warn(
+                        "[tcc] Final Clear button was not reached.",
+                    );
+                    return;
+                }
+
+                if (isDisabled(confirmButton)) {
+                    console.warn(
+                        "[tcc] Final Clear button is disabled.",
+                    );
+                    return;
+                }
+
+                //──────────────────────────────────────────────
+                // 6. Execute Firefox's native Clear action
+                //──────────────────────────────────────────────
+
+                // Make sure we're still on the original tab.
+                const active = await glide.tabs.active();
+
+                if (active.id !== tab_id) {
+                    console.warn(
+                        "[tcc] Active tab changed. Cancelled.",
+                    );
+                    return;
+                }
+
+                await press("<Enter>");
+
+                // Wait until Firefox dismisses the panel.
+                let panelClosed = false;
+
+                for (let i = 0; i < 50; i++) {
+                    if (!panelIsOpen()) {
+                        panelClosed = true;
+                        break;
+                    }
+
+                    await pause(40);
+                }
+
+                if (!panelClosed) {
+                    console.warn(
+                        "[tcc] Clear action did not close the panel.",
+                    );
+                    return;
+                }
+
+                completed = true;
+
+                console.log(
+                    "[tcc] Firefox's native Clear action activated.",
+                );
+
+                //──────────────────────────────────────────────
+                // 7. Reload the original tab
+                //──────────────────────────────────────────────
+
+                // Give Firefox's asynchronous site-data
+                // removal a chance to proceed.
+                await pause(700);
+
+                if ((await glide.tabs.active()).id === tab_id) {
+                    await browser.tabs.reload(tab_id);
+
+                    console.log(
+                        "[tcc] Reloaded current tab.",
+                    );
+                }
+
+            } finally {
+                confirmButton.removeEventListener(
+                    "focus",
+                    onConfirmFocus,
+                    true,
+                );
+            }
+
+        } finally {
+            clearButton.removeEventListener(
+                "focus",
+                onClearFocus,
+                true,
+            );
+        }
+
+    } catch (error) {
+        console.error("[tcc] Failed:", error);
+
+    } finally {
+        //──────────────────────────────────────────────────────
+        // 8. Close the panel if anything failed
+        //──────────────────────────────────────────────────────
+
+        if (!completed && panelIsOpen()) {
+            try {
+                await press("<Esc>");
+
+                console.log(
+                    "[tcc] Cancelled. Closed panel with Esc.",
+                );
+            } catch (error) {
+                console.warn(
+                    "[tcc] Could not close panel:",
+                    error,
+                );
+            }
+        }
+    }
+}, {
+    description: "Clear current website cookies and site data",
+});
 
 
 //7. Focus the largest scrollable element on the page
