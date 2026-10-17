@@ -1931,6 +1931,17 @@ glide.keymaps.set("normal", "tcc", async ({ tab_id }) => {
     description: "Clear current website cookies and site data",
 });
 
+//E. tb - Move current tab to bottom of tab list
+//Source: ChatGPT
+
+safeDel("normal", "tb");
+
+glide.keymaps.set("normal", "tb", async ({ tab_id }) => {
+    await browser.tabs.move(tab_id, { index: -1 });
+}, {
+    description: "Move current tab to bottom",
+});
+
 
 //7. Focus the largest scrollable element on the page
 //Source: ChatGPT
