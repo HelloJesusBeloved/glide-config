@@ -263,7 +263,7 @@ async function readClipboardURL(): Promise<string> {
 }
 
 
-//7. Check whether the visual-mode cursor is between the first and second
+//7. Check whether the visual mode cursor is between the first and second
 // characters of a word.
 //
 // This works across HTML text-node boundaries by using DOM Ranges to
@@ -286,108 +286,253 @@ async function readClipboardURL(): Promise<string> {
 // The function deliberately checks the selection's FOCUS position,
 // because that is the side of the selection where the Vim cursor is.
 //Source: ChatGPT
-async function isBetweenFirstTwoWordCharacters(
+// Returns the optional correction to send BEFORE Ctrl+Shift+Right.
+// An existing selection uses Shift+Left so its anchor is preserved.
+async function getVisualWordCorrection(
     tab_id: number,
-): Promise<boolean> {
-    return await glide.content.execute(
-        () => {
-            const selection = window.getSelection();
+): Promise<"" | "<Left>" | "<S-Left>"> {
+    try {
+        const results = await browser.scripting.executeScript({
+            target: { tabId: tab_id, allFrames: true },
+            func: (): "" | "<Left>" | "<S-Left>" => {
+                // Parents of focused iframes can also report hasFocus().
+                // Only the deepest focused frame should inspect its caret.
+                if (!document.hasFocus()) return "";
 
-            if (!selection || selection.rangeCount === 0) {
-                return false;
+                let active = document.activeElement;
+                while (active?.shadowRoot?.activeElement) {
+                    active = active.shadowRoot.activeElement;
+                }
+                if (active?.matches("iframe, frame")) return "";
+
+                const segmenter = new Intl.Segmenter(undefined, {
+                    granularity: "grapheme",
+                });
+
+                const isWord = (text: string) =>
+                    /^[\p{L}\p{N}_][\p{L}\p{N}\p{M}_\u200c\u200d]*$/u.test(text);
+
+                const check = (
+                    before: string,
+                    after: string,
+                    collapsed: boolean,
+                ): "" | "<Left>" | "<S-Left>" => {
+                    const characters = Array.from(
+                        segmenter.segment(before + after),
+                    );
+                    const index = characters.findIndex(
+                        (part) => part.index === before.length,
+                    );
+
+                    // No boundary here means the caret is inside a grapheme,
+                    // such as between a letter and its combining accent.
+                    if (index < 1) return "";
+
+                    const previous = characters[index - 1].segment;
+                    const next = characters[index].segment;
+                    const previousPrevious = characters[index - 2]?.segment;
+
+                    if (
+                        !isWord(previous) ||
+                        !isWord(next) ||
+                        (previousPrevious !== undefined &&
+                            isWord(previousPrevious))
+                    ) {
+                        return "";
+                    }
+
+                    return collapsed ? "<Left>" : "<S-Left>";
+                };
+
+                // Firefox keeps native text-control selections separately
+                // from window.getSelection(). Use the focus end, not always
+                // selectionEnd, because a selection can run backwards.
+                if (
+                    active instanceof HTMLInputElement ||
+                    active instanceof HTMLTextAreaElement
+                ) {
+                    const start = active.selectionStart;
+                    const end = active.selectionEnd;
+                    if (start === null || end === null) return "";
+
+                    const focus =
+                        active.selectionDirection === "backward"
+                            ? start
+                            : end;
+
+                    return check(
+                        active.value.slice(0, focus),
+                        active.value.slice(focus),
+                        start === end,
+                    );
+                }
+
+                const selection = window.getSelection();
+                if (!selection || selection.rangeCount !== 1) return "";
+
+                const focusNode = selection.focusNode;
+                const focusOffset = selection.focusOffset;
+                if (!focusNode) return "";
+
+                const styles = new Map<Element, CSSStyleDeclaration>();
+
+                const styleOf = (element: Element) => {
+                    let style = styles.get(element);
+                    if (!style) {
+                        style = getComputedStyle(element);
+                        styles.set(element, style);
+                    }
+                    return style;
+                };
+
+                const isInline = (element: Element) => {
+                    const display = styleOf(element).display;
+                    return display === "inline" || display === "contents";
+                };
+
+                // Expand out of inline wrappers, but stay inside the nearest
+                // block, editing host, or shadow root.
+                let scope: Node =
+                    focusNode.nodeType === Node.TEXT_NODE
+                        ? focusNode.parentNode!
+                        : focusNode;
+
+                while (scope.parentNode) {
+                    if (
+                        scope instanceof Element &&
+                        !isInline(scope)
+                    ) break;
+
+                    if (
+                        scope instanceof HTMLElement &&
+                        scope.isContentEditable &&
+                        !scope.parentElement?.isContentEditable
+                    ) break;
+
+                    if (
+                        scope.parentNode.nodeType === Node.DOCUMENT_NODE
+                    ) break;
+
+                    scope = scope.parentNode;
+                    if (scope instanceof ShadowRoot) break;
+                }
+
+                let before = "";
+                let after = "";
+                let foundCaret = false;
+                let visited = 0;
+                let charactersRead = 0;
+                let tooLarge = false;
+
+                const append = (text: string) => {
+                    charactersRead += text.length;
+                    if (charactersRead > 100_000) {
+                        tooLarge = true;
+                        return;
+                    }
+
+                    if (foundCaret) after += text;
+                    else before += text;
+                };
+
+                const visit = (node: Node): void => {
+                    if (tooLarge) return;
+
+                    if (++visited > 5_000) {
+                        tooLarge = true;
+                        return;
+                    }
+
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        const text = node.nodeValue ?? "";
+
+                        if (node === focusNode) {
+                            append(text.slice(0, focusOffset));
+                            foundCaret = true;
+                            append(text.slice(focusOffset));
+                        } else {
+                            append(text);
+                        }
+                        return;
+                    }
+
+                    if (
+                        !(node instanceof Element) &&
+                        !(node instanceof ShadowRoot)
+                    ) return;
+
+                    let boundary = false;
+
+                    if (node instanceof Element) {
+                        if (
+                            node.matches(
+                                "script, style, template, noscript",
+                            )
+                        ) return;
+
+                        const style = styleOf(node);
+                        if (style.display === "none") return;
+
+                        if (
+                            style.visibility !== "visible" ||
+                            style.contentVisibility === "hidden" ||
+                            style.userSelect === "none" ||
+                            node.matches(
+                                "[inert], input, textarea, select, img, br, hr, iframe, frame, canvas, svg, slot",
+                            ) ||
+                            (node !== scope && node.shadowRoot !== null)
+                        ) {
+                            // Do not invent a joined word across a line break,
+                            // non-text control, or an unsupported subtree.
+                            append("\n");
+                            return;
+                        }
+
+                        boundary = !isInline(node);
+                    }
+
+                    if (boundary) append("\n");
+
+                    const children = node.childNodes;
+                    for (let i = 0; i <= children.length; i++) {
+                        // Element focus offsets count child nodes, not letters.
+                        if (
+                            node === focusNode &&
+                            i === focusOffset
+                        ) {
+                            foundCaret = true;
+                        }
+
+                        if (i < children.length) visit(children[i]);
+                        if (tooLarge) return;
+                    }
+
+                    if (boundary) append("\n");
+                };
+
+                visit(scope);
+
+                if (!foundCaret || tooLarge) return "";
+                return check(before, after, selection.isCollapsed);
+            },
+        });
+
+        for (const result of results) {
+            if (result.error) continue;
+
+            if (
+                result.result === "<Left>" ||
+                result.result === "<S-Left>"
+            ) {
+                return result.result;
             }
+        }
+    } catch {
+        // Restricted pages or inaccessible frames: use native movement
+        // without guessing whether an extra correction is needed.
+    }
 
-            const focusNode = selection.focusNode;
-            const focusOffset = selection.focusOffset;
-
-            if (!focusNode) {
-                return false;
-            }
-
-            // Find the nearest element containing the selection.
-            //
-            // Normally this will be the page body or an element inside it.
-            // Using the common ancestor lets this work inside things such
-            // as articles, contenteditable areas, etc.
-            const container =
-                focusNode.nodeType === Node.ELEMENT_NODE
-                    ? (focusNode as Element)
-                    : focusNode.parentElement;
-
-            if (!container) {
-                return false;
-            }
-
-            // Create a range representing everything before the actual
-            // selection focus.
-            const beforeRange = document.createRange();
-
-            try {
-                beforeRange.selectNodeContents(container);
-                beforeRange.setEnd(focusNode, focusOffset);
-            } catch {
-                return false;
-            }
-
-            // Create a range representing everything after the actual
-            // selection focus.
-            const afterRange = document.createRange();
-
-            try {
-                afterRange.selectNodeContents(container);
-                afterRange.setStart(focusNode, focusOffset);
-            } catch {
-                return false;
-            }
-
-            const beforeText = beforeRange.toString();
-            const afterText = afterRange.toString();
-
-            // We need at least two characters before the caret:
-            //
-            //   [word start][first letter][caret]
-            //
-            // However, because the container may begin immediately at the
-            // caret, also handle the case where there is only one character
-            // before the caret.
-            const previous = beforeText.at(-1);
-            const previousPrevious = beforeText.at(-2);
-            const next = afterText.at(0);
-
-            if (!previous || !next) {
-                return false;
-            }
-
-            // Vim's normal "word" characters.
-            const isWordCharacter = (char: string) =>
-                /[A-Za-z0-9_]/.test(char);
-
-            // We are looking for:
-            //
-            //   <word character> <word character>
-            //   ^first            ^caret
-            //
-            // where the character before the first character is NOT a
-            // word character.
-            //
-            // Example:
-            //
-            //   hello
-            //    ^
-            //
-            // beforeText ends in "h"
-            // previous = "h"
-            // previousPrevious = whitespace/start
-            // next = "e"
-            return (
-                isWordCharacter(previous) &&
-                isWordCharacter(next) &&
-                (!previousPrevious ||
-                    !isWordCharacter(previousPrevious))
-            );
-        },
-        { tab_id },
-    );
+    return "";
 }
 
 
@@ -616,17 +761,6 @@ glide.keymaps.set("visual", "k", async () => {
 glide.keymaps.set("visual", "b", async () => {
     await glide.keys.send("<C-S-Left>");
 });
-// The actual browser cursor is effectively positioned to the right of the
-// vim style cursor. That puts the cursor between the first and second letter
-// of the word when using w in visual mode, so this moves back one character
-// at the beggining of the word before extending the selection with Ctrl+Right.
-safeDel("visual", "w");
-glide.keymaps.set("visual", "w", async ({ tab_id }) => {
-    if (await isBetweenFirstTwoWordCharacters(tab_id)) {
-        await glide.keys.send("<Left>");
-    }
-    await glide.keys.send("<C-S-Right>");
-});
 
 //c. Make gg and shift + g actually select to the bottom or top in visual mode
   glide.keymaps.set("visual", "<S-g>", async () => {
@@ -648,6 +782,27 @@ glide.keymaps.set("visual", "0", async () => {
 glide.keymaps.set("normal", "<leader>v", async () => {
     await glide.keys.send("<F7>");
   });
+  
+//f. Visual-mode w: correct the first-character offset, then extend by word.
+// The actual browser cursor is effectively positioned to the right of the
+// vim style cursor. That puts the cursor between the first and second letter
+// of the word when using w in visual mode, so this moves back one character
+// at the beggining of the word before extending the selection with Ctrl+Right.
+safeDel("visual", "w");
+glide.keymaps.set("visual", "w", async ({ tab_id }) => {
+    const correction = await getVisualWordCorrection(tab_id);
+
+    // Do not send delayed keys to a different tab or after leaving Visual mode.
+    if (
+        glide.ctx.mode !== "visual" ||
+        (await glide.tabs.active()).id !== tab_id
+    ) return;
+
+    await glide.keys.send(`${correction}<C-S-Right>`, {
+        skip_mappings: true,
+    });
+});
+
 
 //shift o to insert a line above in normal mode
   glide.keymaps.set("normal", "<S-o>", async () => {
