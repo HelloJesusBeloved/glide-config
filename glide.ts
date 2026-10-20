@@ -3236,3 +3236,159 @@ glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
     }
 
 });
+
+
+
+
+
+//Backround Processes
+
+//──────────────────────────────────────────────────────────────
+// 1. URL bar → Insert mode
+//──────────────────────────────────────────────────────────────
+//
+// Whenever the URL bar gains focus (click, Ctrl+L, Ctrl+K, F6, Alt+D,
+// opening a new tab with <leader>n / Ctrl+T / tab_new...), switch to
+// Insert mode.
+//
+// This is a one-time switch upon entering/opening the URL bar, NOT a lock:
+// pressing Esc leaves you in Normal mode for as long as you stay in the bar.
+//
+// When you open a new tab while the URL bar was already focused in Normal
+// mode from a previous tab (after Esc), Firefox keeps the same chrome input
+// focused without re-firing a DOM focus event. We catch that via the UrlEnter
+// autocmd so new tabs always default to Insert mode ready for typing.
+//
+// Ignore mode is left alone. It is a deliberate pass-through mode, and
+// Glide does not leave it on focus changes.
+//
+// Source: claude-fable-5.1-max
+
+// The text field inside Firefox's URL bar.
+const URLBAR_INPUT_ID = "urlbar-input";
+
+// Re-assert Insert at these delays (ms) after the URL bar gains focus, in
+// case a late Normal request from the previously focused element lands
+// after ours. Bounded on purpose, so you can leave Insert afterwards.
+const URLBAR_INSERT_RECHECK_MS = [0, 50, 150];
+
+// True while the URL bar has focus (tracked from focus/blur events).
+let urlBarFocused = false;
+
+function isUrlBarElement(el: Element | null): boolean {
+    if (!el) return false;
+    return (
+        el.id === URLBAR_INPUT_ID ||
+        el.getAttribute?.("anonid") === "input" ||
+        Boolean(el.closest?.("#urlbar"))
+    );
+}
+
+function isUrlBarCurrentlyFocused(): boolean {
+    const input = document.getElementById(URLBAR_INPUT_ID);
+    if (!input) return false;
+
+    const active = document.activeElement;
+    if (active === input || isUrlBarElement(active)) {
+        return true;
+    }
+
+    const urlbar = document.getElementById("urlbar");
+    if (urlbar && urlbar.hasAttribute("focused")) {
+        return true;
+    }
+
+    return false;
+}
+
+function triggerUrlBarInsert(): void {
+    urlBarFocused = true;
+
+    for (const delay of URLBAR_INSERT_RECHECK_MS) {
+        setTimeout(() => {
+            urlBarEnterInsert().catch((error) => {
+                console.error("[urlbar] Failed to enter Insert:", error);
+            });
+        }, delay);
+    }
+}
+
+async function urlBarEnterInsert(): Promise<void> {
+    // Focus already left, e.g. Enter was pressed and the page took over.
+    if (!urlBarFocused && !isUrlBarCurrentlyFocused()) {
+        return;
+    }
+
+    const mode = glide.ctx.mode;
+
+    // Already there, or deliberately in pass-through mode.
+    if (mode === "insert" || mode === "ignore") {
+        return;
+    }
+
+    await glide.excmds.execute("mode_change insert");
+}
+
+function isNewTabUrl(url: string): boolean {
+    const lower = url.toLowerCase();
+    const customNewTab = (glide.o as any)?.newtab_url?.toLowerCase?.();
+    return (
+        lower === "about:newtab" ||
+        lower === "about:home" ||
+        lower === "about:blank" ||
+        lower === "about:privatebrowsing" ||
+        lower.startsWith("about:newtab") ||
+        lower.startsWith("about:home") ||
+        (customNewTab && lower === customNewTab)
+    );
+}
+
+function hookUrlBar(attempt: number = 0): void {
+    const input = document.getElementById(URLBAR_INPUT_ID);
+
+    if (!input) {
+        // The browser UI may not be mirrored into the config document yet.
+        if (attempt < 20) {
+            setTimeout(() => hookUrlBar(attempt + 1), 250);
+        } else {
+            console.warn(
+                `[urlbar] #${URLBAR_INPUT_ID} not found, URL bar → Insert is inactive.`,
+            );
+        }
+
+        return;
+    }
+
+    input.addEventListener(
+        "focus",
+        () => {
+            triggerUrlBarInsert();
+        },
+        true,
+    );
+
+    input.addEventListener(
+        "blur",
+        () => {
+            urlBarFocused = false;
+        },
+        true,
+    );
+
+    console.log("[urlbar] URL bar → Insert mode is active.");
+}
+
+// 1. Initial hook when config loads
+glide.autocmds.create("ConfigLoaded", () => {
+    hookUrlBar();
+});
+
+// 2. Tab changes / new tabs (covers <leader>n, Ctrl+T, tab_new)
+// When a new tab is opened while the URL bar was already focused in Normal mode,
+// Firefox keeps the input focused without re-firing a DOM focus event.
+// We catch that here so new tabs always start in Insert mode.
+glide.autocmds.create("UrlEnter", /./, ({ url }) => {
+    if (isNewTabUrl(url) || isUrlBarCurrentlyFocused()) {
+        triggerUrlBarInsert();
+    }
+});
