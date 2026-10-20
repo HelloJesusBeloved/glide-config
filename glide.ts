@@ -1909,6 +1909,13 @@ glide.keymaps.set("normal", "<leader>c", "config_reload");
 //Source: Me
 glide.keymaps.set("normal", "<leader>C", "config_edit");
 
+// Ctrl+L focuses Firefox's URL bar and enters Glide insert mode.
+// Make's sure insert mode is entered when the url bar is focused with C-l
+safeDel("normal", "<C-l>");
+glide.keymaps.set("normal", "<C-l>", async () => {
+    await glide.keys.send("<C-l>", { skip_mappings: true });
+    await glide.excmds.execute("mode_change insert");
+});
 
 
 
