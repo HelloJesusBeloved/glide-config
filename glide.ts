@@ -1891,9 +1891,9 @@ glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle");
 //      await glide.keys.send("<Apps>");
 //    });
 
-//Map Shift + u to Ctrl + z in normal mode
-//For when simple u in normal mode doesn't undo
-  glide.keymaps.set("normal", "U", async () => {
+//Map u in normal mode to Ctrl + z
+  safeDel("normal", "u");
+  glide.keymaps.set("normal", "u", async () => {
     await glide.keys.send("<C-z>");
   });
 
