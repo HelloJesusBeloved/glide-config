@@ -56,10 +56,10 @@ async function clickElement(tab_id: number, ...selectors: string[]): Promise<boo
 // becomes plain "1" and deletes 1u, 1o and anything else under "1".
 // (That exact line in local.ts was the cause of the 1u/1o bug.)
 //
-// For site-specific mappings prefer glide.buf.keymaps.set() instead of
-// set + cleanup: Glide clears buffer mappings itself on every URL change.
+// For site-specific mappings prefer glide.buf.keymaps.set() (or an idempotent
+// UrlEnter sync when Which-Key descriptions are needed) instead of set + cleanup.
 function safeDel(
-    mode: string,
+    mode: GlideMode | GlideMode[],
     key: string,
 ) {
     try {
@@ -89,105 +89,7 @@ function decodeSafeLinksURL(safeLinksUrl: string): string | null {
 }
 
 
-//4. SubMenu Structure Definition
-//Creates the structure for making your own multi key submenu structures
-//Source: ChatGPT
-//Example:
-// subMenu("1", {
-//     u: {
-//         description: "URL scanners",
-//         action: async () => {
-//             // whatever you want
-//         },
-//     },
-//
-//     n: {
-//         description: "Search person",
-//         websites: [
-//             "outlook.office.com",
-//             "outlook.cloud.microsoft",
-//         ],
-//         action: async () => {
-//             // whatever you want
-//         },
-//     },
-// });
-
-type SubMenuAction = () => void | Promise<void>;
-
-interface SubMenuItem {
-    description: string;
-    action: SubMenuAction;
-
-    // Leave blank/undefined for global.
-    // Add one or more hostnames to restrict the mapping.
-    websites?: string[];
-}
-
-function websiteMatches(websites?: string[]): boolean {
-    if (!websites || websites.length === 0) {
-        return true;
-    }
-
-    // glide.ctx.url throws if there is no current URL (e.g. very early in
-    // startup) - treat that as "no match" instead of failing the mapping.
-    let hostname: string;
-    try {
-        hostname = glide.ctx.url.hostname.toLowerCase();
-    } catch {
-        return false;
-    }
-
-    return websites.some((website) => {
-        const host = website
-            .replace(/^https?:\/\//, "")
-            .replace(/\/.*$/, "")
-            .toLowerCase();
-
-        return hostname === host || hostname.endsWith(`.${host}`);
-    });
-}
-
-function subMenu(
-    prefix: string,
-    items: Record<string, SubMenuItem>,
-) {
-    for (const [key, item] of Object.entries(items)) {
-        const lhs = `${prefix}${key}`;
-
-        glide.keymaps.set(
-            "normal",
-            lhs,
-            async () => {
-                if (!websiteMatches(item.websites)) {
-                    return;
-                }
-
-                try {
-                    await item.action();
-                } catch (error) {
-                    // Glide turns an error thrown from a keymap callback into
-                    // a red notification bar (browser-excmds.mts:
-                    // GlideExcmds.execute() ->
-                    // add_notification("glide-excmd-error")). That bar is the
-                    // one on-screen signal that separates "the key dispatched
-                    // but the action failed" from "the key never dispatched".
-                    // We only add context to the message, then rethrow.
-                    const message =
-                        error instanceof Error ? error.message : String(error);
-
-                    throw new Error(`[${lhs}] ${item.description}: ${message}`);
-                }
-            },
-            {
-                description: item.description,
-            },
-        );
-    }
-}
-
-
-//5. Normalize and validate a web URL
+//4. Normalize and validate a web URL
 //Source: ChatGPT (localhost tweak: Me (claude-fable-5.1-max))
 //
 //Examples:
@@ -233,15 +135,15 @@ function normalizeURL(value: string): string | null {
 }
 
 
-//6. Show an error using Glide's built-in error handling
+//5. Show an error using Glide's built-in error handling
 //Source: ChatGPT
 function glideError(message: string): never {
     throw new Error(message);
 }
 
 
-//6b. Read the clipboard and turn it into a validated URL.
-// Shared by 1u / 1o so both fail the same, *visible* way (see subMenu()).
+//6. Read the clipboard and turn it into a validated URL.
+// Shared by 1u / 1o so both validate the clipboard and fail visibly in Glide.
 // Note: inside the Glide config `navigator.clipboard.readText()` runs with
 // the system principal, so there is no permission prompt to worry about.
 //Source: claude-fable-5.1-max
@@ -536,6 +438,48 @@ async function getVisualWordCorrection(
 }
 
 
+//8. Focus the largest scrollable element on the page
+// Used by Safe Enter after sending a prompt so j/k scroll the chat view.
+//Source: ChatGPT
+async function focusLargestScrollable(
+    tab_id: number,
+): Promise<void> {
+    await glide.content.execute(() => {
+        const elements = Array.from(
+            document.querySelectorAll<HTMLElement>("*"),
+        );
+
+        let best: HTMLElement | null = null;
+        let bestArea = 0;
+
+        for (const el of elements) {
+            const style = getComputedStyle(el);
+
+            if (
+                (style.overflowY === "auto" ||
+                 style.overflowY === "scroll") &&
+                el.scrollHeight > el.clientHeight
+            ) {
+                const area =
+                    el.clientWidth * el.clientHeight;
+
+                if (area > bestArea) {
+                    bestArea = area;
+                    best = el;
+                }
+            }
+        }
+
+        if (best) {
+            best.tabIndex ||= -1;
+            best.focus();
+        }
+    }, {
+        tab_id,
+    });
+}
+
+
 //Custom Keybinds and Commands
 
 //1. Search highlighted text with duckduckgo in normal and visual mode
@@ -555,6 +499,8 @@ glide.keymaps.set(["normal", "visual"], "~", async ({ tab_id }) => {
   await glide.excmds.execute(
     `tab_new https://duckduckgo.com/?q=${query}`
   );
+}, {
+  description: "Search selected text with DuckDuckGo",
 });
 
 
@@ -575,6 +521,8 @@ glide.keymaps.set(["normal", "visual"], "`", async ({ tab_id }) => {
   await glide.excmds.execute(
     `tab_new https://duckduckgo.com/?q=${query}%20meaning`
   );
+}, {
+  description: "Search selected text meaning with DuckDuckGo",
 });
 
 
@@ -612,6 +560,8 @@ glide.keymaps.set("normal", "<leader>F", () => {
         location: "browser-ui",
         selector: ".tabbrowser-tab, .tab-group-label, #tabs-newtab-button.toolbarbutton-1",
     });
+}, {
+    description: "Hint tabs, tab groups, and new tab button",
 });
 
 
@@ -633,25 +583,62 @@ glide.keymaps.set("op-pending", "w", async () => {
             "mode_change normal",
         );
     }
+}, {
+    description: "Cut to next word",
 });
 
-//db
+//db - Delete backward one word and exit operator-pending mode
+safeDel("op-pending", "b");
+
 glide.keymaps.set("op-pending", "b", async () => {
-    await glide.keys.send("<C-S-Left>");
-    await glide.keys.send("<Backspace>");
+    try {
+        await glide.keys.send(
+            "<C-S-Left><Backspace>",
+            { skip_mappings: true },
+        );
+    } finally {
+        await glide.excmds.execute(
+            "mode_change normal",
+        );
+    }
+}, {
+    description: "Delete backward one word",
 });
 
-//d$
+//d$ - Delete from cursor to end of line and exit operator-pending mode
+safeDel("op-pending", "$");
+
 glide.keymaps.set("op-pending", "$", async () => {
-    await glide.keys.send("<Left>");
-    await glide.keys.send("<S-End>");
-    await glide.keys.send("<Backspace>");
+    try {
+        await glide.keys.send(
+            "<Left><S-End><Backspace>",
+            { skip_mappings: true },
+        );
+    } finally {
+        await glide.excmds.execute(
+            "mode_change normal",
+        );
+    }
+}, {
+    description: "Delete to end of line",
 });
 
-//d0
+//d0 - Delete from cursor to start of line and exit operator-pending mode
+safeDel("op-pending", "0");
+
 glide.keymaps.set("op-pending", "0", async () => {
-    await glide.keys.send("<S-Home>");
-    await glide.keys.send("<Backspace>");
+    try {
+        await glide.keys.send(
+            "<S-Home><Backspace>",
+            { skip_mappings: true },
+        );
+    } finally {
+        await glide.excmds.execute(
+            "mode_change normal",
+        );
+    }
+}, {
+    description: "Delete to start of line",
 });
 
 //dG - Delete the current line and everything below it
@@ -669,6 +656,8 @@ glide.keymaps.set("op-pending", "<S-g>", async () => {
             "mode_change normal",
         );
     }
+}, {
+    description: "Delete current line through end of text",
 });
 
 //dd - Cut the current line, then delete the newline
@@ -687,6 +676,8 @@ glide.keymaps.set("op-pending", "d", async () => {
             "mode_change normal",
         );
     }
+}, {
+    description: "Cut current line",
 });
 
 //yy remapped to copy current line to clipboard in normal mode
@@ -723,66 +714,92 @@ glide.keymaps.set("normal", "yG", async () => {
         "<Left>",
         { skip_mappings: true },
     );
+}, {
+    description: "Yank current line through end of text",
 });
 
 //p to paste in normal mode
 glide.keymaps.set("normal", "p", async () => {
     await glide.keys.send("<C-v>");
+}, {
+    description: "Paste from clipboard",
 });
 
 //ctrl + r to redo in normal mode
-  glide.keymaps.set("normal", "<C-r>", async () => {
+glide.keymaps.set("normal", "<C-r>", async () => {
     await glide.keys.send("<C-S-z>");
-  });
+}, {
+    description: "Redo",
+});
 
 //gg and shift + g from Page Home and End to the Bottom and Top of the Text Block
 safeDel("normal", "<S-g>");
 safeDel("normal", "gg");
 
-  glide.keymaps.set("normal", "<S-g>", async () => {
+glide.keymaps.set("normal", "<S-g>", async () => {
     await glide.keys.send("<C-End>");
-  });
+}, {
+    description: "Move cursor to end of text",
+});
 
-  glide.keymaps.set("normal", "gg", async () => {
+glide.keymaps.set("normal", "gg", async () => {
     await glide.keys.send("<C-Home>");
-  });
+}, {
+    description: "Move cursor to start of text",
+});
 
 //visual mode - Making Visual Mode better
 
 //a. Make j and k actually select line by line
 glide.keymaps.set("visual", "j", async () => {
     await glide.keys.send("<S-Down>");
+}, {
+    description: "Extend selection down one line",
 });
 glide.keymaps.set("visual", "k", async () => {
     await glide.keys.send("<S-Up>");
+}, {
+    description: "Extend selection up one line",
 });
 
 //b. Make w and b actually select forwards and backwards one word
 glide.keymaps.set("visual", "b", async () => {
     await glide.keys.send("<C-S-Left>");
+}, {
+    description: "Extend selection backward one word",
 });
 
 //c. Make gg and shift + g actually select to the bottom or top in visual mode
-  glide.keymaps.set("visual", "<S-g>", async () => {
+glide.keymaps.set("visual", "<S-g>", async () => {
     await glide.keys.send("<C-S-End>");
-  });
-  glide.keymaps.set("visual", "gg", async () => {
+}, {
+    description: "Extend selection to end of text",
+});
+glide.keymaps.set("visual", "gg", async () => {
     await glide.keys.send("<C-S-Home>");
-  });
+}, {
+    description: "Extend selection to start of text",
+});
 
 //d. Make 0 and $ actually go to the beginning and end of the line
 glide.keymaps.set("visual", "$", async () => {
     await glide.keys.send("<S-End>");
+}, {
+    description: "Extend selection to end of line",
 });
 glide.keymaps.set("visual", "0", async () => {
     await glide.keys.send("<S-Home>");
+}, {
+    description: "Extend selection to start of line",
 });
 
 //e. Make <leader>v turn on caret browsing
 glide.keymaps.set("normal", "<leader>v", async () => {
     await glide.keys.send("<F7>");
-  });
-  
+}, {
+    description: "Toggle caret browsing",
+});
+
 //f. Visual-mode w: correct the first-character offset, then extend by word.
 // The actual browser cursor is effectively positioned to the right of the
 // vim style cursor. That puts the cursor between the first and second letter
@@ -801,16 +818,22 @@ glide.keymaps.set("visual", "w", async ({ tab_id }) => {
     await glide.keys.send(`${correction}<C-S-Right>`, {
         skip_mappings: true,
     });
+}, {
+    description: "Extend selection forward one word",
 });
 
 
 //shift o to insert a line above in normal mode
-  glide.keymaps.set("normal", "<S-o>", async () => {
+safeDel("normal", "<S-o>");
+
+glide.keymaps.set("normal", "<S-o>", async () => {
     await glide.excmds.execute("mode_change insert");
-    await glide.keys.send("<Home>");
-    await glide.keys.send("<Enter>");
-    await glide.keys.send("<Up>");
-  });
+    await glide.keys.send("<Home><S-Enter><Up>", {
+        skip_mappings: true,
+    });
+}, {
+    description: "Open new line above",
+});
 
 // Fix open a new line below the current line.
 //
@@ -850,40 +873,30 @@ glide.keymaps.set(
 
 //A. Set the current tab's wake lock to on (make's so the computer doesn't sleep)
 //Source: ChatGPT
-let wakeLock: WakeLockSentinel | undefined;
-
 glide.keymaps.set("normal", "<leader>1", async ({ tab_id }) => {
-
     const result = await glide.content.execute(
-
         async () => {
-
             const w = window as any;
 
             if (w.__wakeLock) {
-
                 await w.__wakeLock.release();
-
                 w.__wakeLock = undefined;
-
                 return "released";
-
             }
 
             w.__wakeLock =
                 await navigator.wakeLock.request("screen");
 
             return "acquired";
-
         },
-
         {
             tab_id,
         },
-
     );
 
     console.log(result);
+}, {
+    description: "Toggle screen wake lock for current tab",
 });
 
 //B. tm - Move current tab to a new window
@@ -955,8 +968,6 @@ glide.keymaps.set("normal", "tU", async ({ tab_id }) => {
 });
 
 // E. ts — Send current tab to a Firefox Sync device.
-// Replace the ENTIRE old section E (configuration, observers, helpers and ts).
-// Keep the existing safeDel() helper elsewhere in glide.ts.
 // Uses supported Glide APIs and ordinary DOM operations only.
 
 const sendTab = (() => {
@@ -1650,7 +1661,7 @@ glide.keymaps.set("normal", "tcc", async ({ tab_id }) => {
     description: "Clear current website cookies and site data",
 });
 
-//E. tb - Move current tab to bottom of tab list
+//G. tb - Move current tab to bottom of tab list
 //Source: ChatGPT
 
 safeDel("normal", "tb");
@@ -1662,68 +1673,9 @@ glide.keymaps.set("normal", "tb", async ({ tab_id }) => {
 });
 
 
-//7. Focus the largest scrollable element on the page
-//Source: ChatGPT
-
-glide.keymaps.set(
-    "normal",
-    "u",
-    ({ tab_id }) =>
-        focusLargestScrollable(tab_id),
-);
-
-async function focusLargestScrollable(
-    tab_id: number,
-): Promise<void> {
-
-    await glide.content.execute(() => {
-
-        const elements = Array.from(
-            document.querySelectorAll<HTMLElement>("*"),
-        );
-
-        let best: HTMLElement | null = null;
-        let bestArea = 0;
-
-        for (const el of elements) {
-
-            const style = getComputedStyle(el);
-
-            if (
-                (style.overflowY === "auto" ||
-                 style.overflowY === "scroll") &&
-                el.scrollHeight > el.clientHeight
-            ) {
-
-                const area =
-                    el.clientWidth * el.clientHeight;
-
-                if (area > bestArea) {
-                    bestArea = area;
-                    best = el;
-                }
-
-            }
-
-        }
-
-        if (best) {
-
-            best.tabIndex ||= -1;
-            best.focus();
-
-        }
-
-    }, {
-        tab_id,
-    });
-
-}
-
-
-//8. Search in a text field containing someone's first and last name for there full name, just their first and just their last
+//7. Search in a text field containing someone's first and last name for there full name, just their first and just their last
 //Source: Me
-  glide.keymaps.set("normal", "<S-n>", async () => {
+glide.keymaps.set("normal", "<S-n>", async () => {
     const delay = 3000;
 
     await glide.excmds.execute("mode_change insert");
@@ -1751,11 +1703,12 @@ async function focusLargestScrollable(
     await glide.keys.send("<C-a>");
     await glide.keys.send("<C-v>");
     await glide.keys.send("<Enter>");
+}, {
+    description: "Search full, first, and last name sequentially",
+});
 
-  });
 
-
-//9. Show hints only for Outlook Safe Links and copy the decoded URL with ys in normal mode.
+//8. Show hints only for Outlook Safe Links and copy the decoded URL with ys in normal mode.
 glide.keymaps.set("normal", "ys", () => {
     glide.hints.show({
         selector: "a[href]",
@@ -1804,39 +1757,35 @@ glide.keymaps.set("normal", "ys", () => {
 });
 
 
-//10. Open the copied url in virustotal.com
+//9. Open the copied url in virustotal.com
 //Source: ChatGPT (hardening: Me (claude-fable-5.1-max))
-subMenu("1", {
-    u: {
-        description: "Scan clipboard URL with VirusTotal",
+safeDel("normal", "1u");
 
-        action: async () => {
-            const url = await readClipboardURL();
+glide.keymaps.set("normal", "1u", async () => {
+    const url = await readClipboardURL();
 
-            // Open VirusTotal. The URL is a query *parameter*, so it has to be
-            // encoded - otherwise any ?, & or # in it breaks the search.
-            await browser.tabs.create({
-                url: `https://www.virustotal.com/gui/search?query=${encodeURIComponent(url)}`,
-            });
-        },
-    },
+    // Open VirusTotal. The URL is a query *parameter*, so it has to be
+    // encoded - otherwise any ?, & or # in it breaks the search.
+    await browser.tabs.create({
+        url: `https://www.virustotal.com/gui/search?query=${encodeURIComponent(url)}`,
+    });
+}, {
+    description: "Scan clipboard URL with VirusTotal",
 });
 
 
-//11. Open clipboard contents in a new tab
+//10. Open clipboard contents in a new tab
 //Source: ChatGPT (hardening: Me (claude-fable-5.1-max))
-subMenu("1", {
-    o: {
-        description: "Open clipboard in a new tab",
+safeDel("normal", "1o");
 
-        action: async () => {
-            const url = await readClipboardURL();
+glide.keymaps.set("normal", "1o", async () => {
+    const url = await readClipboardURL();
 
-            await browser.tabs.create({
-                url,
-            });
-        },
-    },
+    await browser.tabs.create({
+        url,
+    });
+}, {
+    description: "Open clipboard URL in a new tab",
 });
 
 
@@ -1849,8 +1798,12 @@ subMenu("1", {
 safeDel("normal", "<A-h>");
 safeDel("normal", "<A-l>");
 //2. Add new leader h and l mappings
-glide.keymaps.set("normal", "<leader>h", "back");
-glide.keymaps.set("normal", "<leader>l", "forward");
+glide.keymaps.set("normal", "<leader>h", "back", {
+    description: "Go back in history",
+});
+glide.keymaps.set("normal", "<leader>l", "forward", {
+    description: "Go forward in history",
+});
 
 //Re-map <C-o> and <C-i> to <leader>o and <leader>i
 //Source: Me qc
@@ -1858,29 +1811,41 @@ glide.keymaps.set("normal", "<leader>l", "forward");
 safeDel("normal", "<C-o>");
 safeDel("normal", "<C-i>");
 //2. Add new <leader>o mapping
-glide.keymaps.set("normal", "<leader>o", "jumplist_back");
-glide.keymaps.set("normal", "<leader>i", "jumplist_forward");
+glide.keymaps.set("normal", "<leader>o", "jumplist_back", {
+    description: "Jump back in jumplist",
+});
+glide.keymaps.set("normal", "<leader>i", "jumplist_forward", {
+    description: "Jump forward in jumplist",
+});
 
 //Make so just + and - by themselves adjust zoom level in normal mode
 //Source: Me
 //1. Set = and - to Ctrl + and Ctrl Shift _ in normal mode
 //Note: It apears that "-" cannot be used in <C-->, and there is not an alias listed in the docs that I could see. (<C-"-"> also does not work)
-  glide.keymaps.set("normal", "=", async () => {
+glide.keymaps.set("normal", "=", async () => {
     await glide.keys.send("<C-=>");
-  });
+}, {
+    description: "Zoom in",
+});
 
-  glide.keymaps.set("normal", "-", async () => {
+glide.keymaps.set("normal", "-", async () => {
     await glide.keys.send("<C-S-_>");
-  });
+}, {
+    description: "Zoom out",
+});
 
 //Map yl to yank the current tab URL to clipboard
 //Source: Me
-glide.keymaps.set("normal", "yl", "url_yank");
+glide.keymaps.set("normal", "yl", "url_yank", {
+    description: "Yank current tab URL",
+});
 
 //Map <leader> + p in normal mode to toggle pin tab
 //Source: Me
 safeDel("normal", "<A-p>");
-glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle");
+glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle", {
+    description: "Toggle pin on current tab",
+});
 
 //Map Leader s to Shift F10 to open the browser context/autocorrect spelling menu
 //Note: Only works on my Keycron C3 Pro, where I have F3 mapped to the macro Shift + F10, since <S-F10> doesn't work in glide for some reason
@@ -1892,22 +1857,30 @@ glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle");
 //    });
 
 //Map u in normal mode to Ctrl + z
-  safeDel("normal", "u");
-  glide.keymaps.set("normal", "u", async () => {
+safeDel("normal", "u");
+glide.keymaps.set("normal", "u", async () => {
     await glide.keys.send("<C-z>");
-  });
+}, {
+    description: "Undo",
+});
 
 //Map leader + n to new tab
 //Source: Me
-glide.keymaps.set("normal", "<leader>n", "tab_new");
+glide.keymaps.set("normal", "<leader>n", "tab_new", {
+    description: "Open a new tab",
+});
 
 //Map leader + c to reload config
 //Source: Me
-glide.keymaps.set("normal", "<leader>c", "config_reload");
+glide.keymaps.set("normal", "<leader>c", "config_reload", {
+    description: "Reload Glide config",
+});
 
 //Map leader + C to edit config
 //Source: Me
-glide.keymaps.set("normal", "<leader>C", "config_edit");
+glide.keymaps.set("normal", "<leader>C", "config_edit", {
+    description: "Edit Glide config",
+});
 
 // Ctrl+L focuses Firefox's URL bar and enters Glide insert mode.
 // Make's sure insert mode is entered when the url bar is focused with C-l
@@ -1915,6 +1888,8 @@ safeDel("normal", "<C-l>");
 glide.keymaps.set("normal", "<C-l>", async () => {
     await glide.keys.send("<C-l>", { skip_mappings: true });
     await glide.excmds.execute("mode_change insert");
+}, {
+    description: "Focus URL bar in Insert mode",
 });
 
 
@@ -2186,6 +2161,9 @@ glide.keymaps.set(
     async () => {
         await insertPreferredEscape();
     },
+    {
+        description: "Exit Insert mode to Normal mode",
+    },
 );
 
 
@@ -2456,7 +2434,6 @@ glide.autocmds.create(
 
 glide.autocmds.create(
     "KeyStateChanged",
-    "*",
     ({
         mode,
         sequence,
@@ -2756,12 +2733,20 @@ glide.autocmds.create(
         //──────────────────────────────────────────────────────
 
         glide.buf.keymaps.set("insert", "<Enter>", async () => {
+            // While typing in the URL bar, Enter must navigate normally.
+            if (urlBarFocused || isUrlBarCurrentlyFocused()) {
+                await glide.keys.send("<Enter>", { skip_mappings: true });
+                return;
+            }
+
             await glide.keys.send(
                 "<S-Enter>",
                 {
                     skip_mappings: true,
                 },
             );
+        }, {
+            description: "Insert newline without sending prompt",
         });
 
 
@@ -2770,6 +2755,11 @@ glide.autocmds.create(
         //──────────────────────────────────────────────────────
 
         glide.buf.keymaps.set("insert", "<C-Enter>", async ({ tab_id }) => {
+            if (urlBarFocused || isUrlBarCurrentlyFocused()) {
+                await glide.keys.send("<C-Enter>", { skip_mappings: true });
+                return;
+            }
+
             await safeEnterSend(
                 hostname,
             );
@@ -2781,6 +2771,8 @@ glide.autocmds.create(
             await focusLargestScrollable(
                 tab_id,
             );
+        }, {
+            description: "Send prompt, enter Normal mode, and focus chat",
         });
 
 
@@ -2798,9 +2790,16 @@ glide.autocmds.create(
         //──────────────────────────────────────────────────────
 
         glide.buf.keymaps.set("insert", "<C-A-Enter>", async () => {
+            if (urlBarFocused || isUrlBarCurrentlyFocused()) {
+                await glide.keys.send("<C-A-Enter>", { skip_mappings: true });
+                return;
+            }
+
             await safeEnterSend(
                 hostname,
             );
+        }, {
+            description: "Send prompt and stay in Insert mode",
         });
     },
 );
@@ -2810,85 +2809,19 @@ glide.autocmds.create(
 
 //A. Outlook (outlook.cloud.microsoft, outlook.office.com)
 //
-// These are buffer-local mappings (glide.buf.keymaps). Glide clears them
-// itself on every URL change, so no cleanup function is needed and there is
-// no window in which a late cleanup can delete freshly re-registered mappings.
-glide.autocmds.create(
-  "UrlEnter",
-  /^https:\/\/outlook\.(office\.com|cloud\.microsoft)\//,
+// Registered in the normal-mode keymap table via a synchronous, idempotent
+// UrlEnter sync (no async cleanup callback, so zero late-cleanup race).
+// Why global sync instead of glide.buf.keymaps here: Glide's Which-Key popup
+// and :map only read glide.keymaps.list() (global mappings), so syncing them
+// in/out on UrlEnter makes pressing "!" on Outlook show every tag description
+// in Which-Key while keeping non-Outlook sites completely clean.
 
-//a. Toggle through area fields/reagions with ( and )
-//Source: ChatGPT
-//Note: Gets messed up when your regular tab field is on something (resting state is not on anything, and that is what you want to have for this command to successfully change your focus
-  async () => {
+const OUTLOOK_URL_RE = /^https:\/\/outlook\.(office\.com|cloud\.microsoft)\//i;
 
-  glide.buf.keymaps.set("normal", ")", async () => {
-    await glide.keys.send("<C-F6>");
-  });
+// Set order tags are applied relative to their structure in the array.
+const outlookReverseOrder = false;
 
-  glide.buf.keymaps.set("normal", "(", async () => {
-    await glide.keys.send("<C-S-F6>");
-  });
-
-//b. Select the autocorrected word from the Alt Down Arrow menu with Shift J in normal mode
-//Source: Me
-  glide.buf.keymaps.set("normal", "<S-j>", async () => {
-    await glide.keys.send("<A-Down>");
-  });
-
-
-//──────────────────────────────────────────────────────────────
-// Outlook Auto Add Categories Engine
-//──────────────────────────────────────────────────────────────
-
-// Set order tags are applied relative to their structure in the string
-const reverse = false;
-
-const outlookCategories: Record<string, string[]> = {
-
-    // Spam
-    s: [
-        "Not Phishing",
-        "spam",
-    ],
-
-    // KnowBe4
-    k: [
-        "Not Phishing",
-        "KnowBe4",
-    ],
-
-    // Fairmount
-    f: [
-        "Not Phishing",
-        "Fairmount",
-    ],
-
-    // Not Phishing
-    n: [
-        "Not Phishing",
-    ],
-
-	// Not Phishing, Returned
-    r: [
-        "Not Phishing",
-		"Returned",
-    ],
-
-};
-
-glide.buf.keymaps.set("normal", "<S-!>", async () => {
-
-    // Wait for the category key.
-    const key = (await glide.keys.next()).glide_key;
-
-    const tags = outlookCategories[key];
-
-    // Unknown shortcut.
-    if (!tags) {
-        return;
-    }
-
+async function applyOutlookCategories(tags: string[]): Promise<void> {
     await glide.excmds.execute("mode_change insert");
 
     // Open the Categories dialog.
@@ -2898,44 +2831,144 @@ glide.buf.keymaps.set("normal", "<S-!>", async () => {
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // Choose the order in which the tags will be added.
-    const tagsToAdd = reverse
+    const tagsToAdd = outlookReverseOrder
         ? [...tags].reverse()
         : tags;
 
     // Add every tag.
     for (let i = 0; i < tagsToAdd.length; i++) {
-
         const tag = tagsToAdd[i];
 
         await glide.keys.send(tag);
         await glide.keys.send("<Enter>");
 
-        // If there are more tags to enter,
-        // clear the search box.
+        // If there are more tags to enter, clear the search box.
         if (i < tagsToAdd.length - 1) {
             await glide.keys.send("<C-a>");
             await glide.keys.send("<Backspace>");
         }
-
     }
 
     await glide.keys.send("<Esc><Esc>");
+}
+
+const OUTLOOK_NORMAL_KEYS = [
+    ")",
+    "(",
+    "<S-j>",
+    "!s",
+    "!k",
+    "!f",
+    "!n",
+    "!r",
+    "<S-@>",
+] as const;
+
+let outlookKeymapsActive = false;
+
+glide.autocmds.create("UrlEnter", /./, ({ url }) => {
+    let activeUrl = url;
+    try {
+        activeUrl = glide.ctx.url.href;
+    } catch {
+        // Fall back to the UrlEnter event URL.
+    }
+
+    const onOutlook = OUTLOOK_URL_RE.test(activeUrl);
+
+    if (!onOutlook) {
+        if (outlookKeymapsActive) {
+            outlookKeymapsActive = false;
+            for (const lhs of OUTLOOK_NORMAL_KEYS) {
+                safeDel("normal", lhs);
+            }
+        }
+        return;
+    }
+
+    if (outlookKeymapsActive) {
+        return;
+    }
+
+    outlookKeymapsActive = true;
+
+    // a. Toggle through area fields/regions with ( and )
+    // Source: ChatGPT
+    // Note: Best used when no regular tabbable field has focus.
+    glide.keymaps.set("normal", ")", async () => {
+        await glide.keys.send("<C-F6>");
+    }, {
+        description: "Focus next Outlook region",
+    });
+
+    glide.keymaps.set("normal", "(", async () => {
+        await glide.keys.send("<C-S-F6>");
+    }, {
+        description: "Focus previous Outlook region",
+    });
+
+    // b. Select the autocorrected word from the Alt+Down menu with Shift+J
+    // Source: Me
+    glide.keymaps.set("normal", "<S-j>", async () => {
+        await glide.keys.send("<A-Down>");
+    }, {
+        description: "Select autocorrected word from Outlook menu",
+    });
+
+    //──────────────────────────────────────────────────────────
+    // Outlook Auto Add Categories (!s, !k, !f, !n, !r)
+    // Direct multi-key mappings (no glide.keys.next() listener)
+    //──────────────────────────────────────────────────────────
+
+    glide.keymaps.set("normal", "!s", () => applyOutlookCategories([
+        "Not Phishing",
+        "spam",
+    ]), {
+        description: "Outlook categories: Not Phishing, spam",
+    });
+
+    glide.keymaps.set("normal", "!k", () => applyOutlookCategories([
+        "Not Phishing",
+        "KnowBe4",
+    ]), {
+        description: "Outlook categories: Not Phishing, KnowBe4",
+    });
+
+    glide.keymaps.set("normal", "!f", () => applyOutlookCategories([
+        "Not Phishing",
+        "Fairmount",
+    ]), {
+        description: "Outlook categories: Not Phishing, Fairmount",
+    });
+
+    glide.keymaps.set("normal", "!n", () => applyOutlookCategories([
+        "Not Phishing",
+    ]), {
+        description: "Outlook category: Not Phishing",
+    });
+
+    glide.keymaps.set("normal", "!r", () => applyOutlookCategories([
+        "Not Phishing",
+        "Returned",
+    ]), {
+        description: "Outlook categories: Not Phishing, Returned",
+    });
+
+    // Let Shift + 2 (@) clear two categories from an email
+    glide.keymaps.set("normal", "<S-@>", async () => {
+        await glide.excmds.execute("mode_change insert");
+        await glide.keys.send("c");
+        await new Promise(resolve => setTimeout(resolve, 50));
+        await glide.keys.send("<Esc>");
+        await glide.keys.send("<Up>");
+        await glide.keys.send("<Enter>");
+    }, {
+        description: "Clear two Outlook categories from email",
+    });
 });
 
 
-//Let Shift + 2 clear two categorys from an email
-  glide.buf.keymaps.set("normal", "<S-@>", async () => {
-    await glide.excmds.execute("mode_change insert");
-    await glide.keys.send("c");
-    await new Promise(resolve => setTimeout(resolve, 50));
-    await glide.keys.send("<Esc>");
-    await glide.keys.send("<Up>");
-    await glide.keys.send("<Enter>");
-  });
-});
-
-
-//C. Super Productivity
+//B. Super Productivity
 //
 // After Enter is pressed in Insert mode, pass the next Escape
 // directly to Super Productivity so it can close its task-entry
@@ -2956,7 +2989,9 @@ glide.autocmds.create(
             "insert",
             "<Enter>",
             async () => {
-                enterPressed = true;
+                if (!urlBarFocused && !isUrlBarCurrentlyFocused()) {
+                    enterPressed = true;
+                }
 
                 await glide.keys.send(
                     "<Enter>",
@@ -2964,6 +2999,9 @@ glide.autocmds.create(
                         skip_mappings: true,
                     },
                 );
+            },
+            {
+                description: "Confirm Super Productivity entry and arm Escape close",
             },
         );
 
@@ -2992,6 +3030,9 @@ glide.autocmds.create(
                 // intentional Escape, not a focus-driven
                 // Insert → Normal transition.
                 await insertPreferredEscape();
+            },
+            {
+                description: "Close Super Productivity task entry or exit Insert mode",
             },
         );
     },
@@ -3235,13 +3276,15 @@ glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
 
     }
 
+}, {
+    description: "Expand keyword snippet",
 });
 
 
 
 
 
-//Backround Processes
+//Background Processes
 
 //──────────────────────────────────────────────────────────────
 // 1. URL bar → Insert mode
