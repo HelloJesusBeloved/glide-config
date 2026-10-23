@@ -21,6 +21,11 @@ glide.o.hint_size = "14px";
 //Imports (simply so I can add configuration I don't want in the repo, does nothing unless you have "local.ts" in the same folder as your glide.ts)
 glide.include("local.ts").catch(() => {});
 
+// Preferences (about:config)
+// Glide runs these via Firefox Services.prefs on config reload / startup.
+//1. Keep full URL protocol (https://) and trailing slashes visible in the address bar
+glide.prefs.set("browser.urlbar.trimURLs", false);
+
 //Functions
 
 //1. clickElement - The function that raps the tab_id: number, selector: string for mapping keybinds to website elements
