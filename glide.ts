@@ -597,31 +597,46 @@ glide.keymaps.set(["normal", "visual"], "`", async ({ tab_id }) => {
 });
 
 
-//3. Open keyword bookmark (or any other text typed after "ne" in the command line) in a new tab
-//Source: ChatGPT
-glide.excmds.create(
-  {
-    name: "ne",
-    description: "Open keyword bookmark in a new tab",
-  },
-  async ({ args_arr }) => {
-    const query = args_arr.join(" ");
+//3. Open keyword bookmark in a new tab with <leader>N
+// Opens a dedicated commandline prompt to enter a Firefox keyword bookmark or search query
+// without needing to type :ne first.
+//Source: ChatGPT & Me
+safeDel("normal", "<leader>N");
 
-    await glide.excmds.execute(
-      "tab_new about:blank",
-    );
+glide.keymaps.set("normal", "<leader>N", async () => {
+    await glide.commandline.show({
+        title: "keyword",
+        options: [
+            {
+                label: "Keyword bookmark",
+                description: "Open keyword in a new tab",
+                matches: () => true,
+                async execute({ input }) {
+                    const query = input.trim();
+                    if (!query) {
+                        return;
+                    }
 
-    await new Promise(resolve => setTimeout(resolve, 100));
+                    await glide.excmds.execute(
+                        "tab_new about:blank",
+                    );
 
-    await glide.excmds.execute(
-        "mode_change insert",
-    );
+                    await new Promise(resolve => setTimeout(resolve, 100));
 
-    await glide.keys.send("<C-l>");
-    await glide.keys.send(query);
-    await glide.keys.send("<Enter>");
-  },
-);
+                    await glide.excmds.execute(
+                        "mode_change insert",
+                    );
+
+                    await glide.keys.send("<C-l>");
+                    await glide.keys.send(query);
+                    await glide.keys.send("<Enter>");
+                },
+            },
+        ],
+    });
+}, {
+    description: "Open keyword bookmark prompt in a new tab",
+});
 
 
 //4. Hint Tabs, Tab Groups, and the New Tab button with <leader>F
@@ -980,9 +995,17 @@ glide.keymaps.set("normal", "tm", async ({ tab_id }) => {
     description: "Move tab to new window",
 });
 
-//C. tu - Unload current tab after switching to the most recently used tab
-// Source: ChatGPT (MRU selection: claude-fable-5.1-max)
-glide.keymaps.set("normal", "tu", async ({ tab_id }) => {
+//C. Tab Unloading: tuu (MRU current), tua (all other tabs), tuf (hint to unload)
+// Source: ChatGPT & Me (MRU selection: claude-fable-5.1-max)
+
+// Clean up old two-key mappings so tu becomes a submenu prefix
+safeDel("normal", "tu");
+safeDel("normal", "tU");
+
+// a. tuu - Unload current tab after switching to the most recently used tab
+safeDel("normal", "tuu");
+
+glide.keymaps.set("normal", "tuu", async ({ tab_id }) => {
     const tabs = await browser.tabs.query({
         currentWindow: true,
     });
@@ -1009,12 +1032,13 @@ glide.keymaps.set("normal", "tu", async ({ tab_id }) => {
 
     await glide.tabs.unload(tab_id);
 }, {
-    description: "Switch to most recently used tab and unload this one",
+    description: "Switch to most recently used tab and unload current tab",
 });
 
-//D. tU - Unload all tabs except the current one
-//Source: ChatGPT
-glide.keymaps.set("normal", "tU", async ({ tab_id }) => {
+// b. tua - Unload all tabs except the current one
+safeDel("normal", "tua");
+
+glide.keymaps.set("normal", "tua", async ({ tab_id }) => {
     const tabs = await browser.tabs.query({
         currentWindow: true,
     });
@@ -1033,7 +1057,54 @@ glide.keymaps.set("normal", "tU", async ({ tab_id }) => {
 
     await browser.tabs.discard(unloadIds);
 }, {
-    description: "Unload all other tabs",
+    description: "Unload all tabs except the current one",
+});
+
+// c. tuf - Hint all tabs and unload whichever is chosen from the hint
+safeDel("normal", "tuf");
+
+glide.keymaps.set("normal", "tuf", ({ tab_id }) => {
+    glide.hints.show({
+        location: "browser-ui",
+        selector: ".tabbrowser-tab, .tab-group-label, #tabs-newtab-button.toolbarbutton-1",
+        async action({ content }) {
+            const tabInfo = await content.execute((element) => {
+                const tab = (element as HTMLElement).closest(".tabbrowser-tab");
+                if (!tab) return null;
+                const allTabs = Array.from(document.querySelectorAll(".tabbrowser-tab"));
+                return {
+                    index: allTabs.indexOf(tab),
+                };
+            });
+
+            if (!tabInfo || tabInfo.index === -1) {
+                return;
+            }
+
+            const tabs = await browser.tabs.query({
+                currentWindow: true,
+            });
+
+            const targetTab = tabs[tabInfo.index];
+            if (!targetTab?.id) {
+                return;
+            }
+
+            // If the user selected the currently active tab, switch to the
+            // MRU tab first so it can be unloaded without throwing an error.
+            if (targetTab.active || targetTab.id === tab_id) {
+                const nextTab = mostRecentlyUsedTab(tabs, targetTab.id);
+                if (!nextTab?.id) {
+                    throw new Error("Cannot unload the only tab in the window.");
+                }
+                await browser.tabs.update(nextTab.id, { active: true });
+            }
+
+            await glide.tabs.unload(targetTab.id);
+        },
+    });
+}, {
+    description: "Hint tabs and unload chosen tab",
 });
 
 // E. ts — Send current tab to a Firefox Sync device.
