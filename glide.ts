@@ -2734,7 +2734,10 @@ glide.autocmds.create(
 
         glide.buf.keymaps.set("insert", "<Enter>", async () => {
             // While typing in the URL bar, Enter must navigate normally.
-            if (urlBarFocused || isUrlBarCurrentlyFocused()) {
+            // urlBarOwnsKey() reads Firefox's live focus state at this exact
+            // moment - it never relies on remembered state (see the
+            // "URL bar → Insert mode" section for why).
+            if (urlBarOwnsKey("<Enter>")) {
                 await glide.keys.send("<Enter>", { skip_mappings: true });
                 return;
             }
@@ -2755,7 +2758,7 @@ glide.autocmds.create(
         //──────────────────────────────────────────────────────
 
         glide.buf.keymaps.set("insert", "<C-Enter>", async ({ tab_id }) => {
-            if (urlBarFocused || isUrlBarCurrentlyFocused()) {
+            if (urlBarOwnsKey("<C-Enter>")) {
                 await glide.keys.send("<C-Enter>", { skip_mappings: true });
                 return;
             }
@@ -2790,7 +2793,7 @@ glide.autocmds.create(
         //──────────────────────────────────────────────────────
 
         glide.buf.keymaps.set("insert", "<C-A-Enter>", async () => {
-            if (urlBarFocused || isUrlBarCurrentlyFocused()) {
+            if (urlBarOwnsKey("<C-A-Enter>")) {
                 await glide.keys.send("<C-A-Enter>", { skip_mappings: true });
                 return;
             }
@@ -2989,7 +2992,7 @@ glide.autocmds.create(
             "insert",
             "<Enter>",
             async () => {
-                if (!urlBarFocused && !isUrlBarCurrentlyFocused()) {
+                if (!urlBarFocusedNow()) {
                     enterPressed = true;
                 }
 
@@ -3305,48 +3308,89 @@ glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
 // Ignore mode is left alone. It is a deliberate pass-through mode, and
 // Glide does not leave it on focus changes.
 //
+// IMPORTANT - there is deliberately NO long-lived "the URL bar is focused"
+// variable in this section. An earlier version had one (urlBarFocused). It
+// was set to true for every new-tab URL even when the URL bar was not
+// focused, and only a blur event could clear it - which cannot fire for an
+// input that never had focus. It then stayed true until the next time the
+// URL bar was focused and left, and Safe Enter (which steps aside while the
+// URL bar is focused) sent a plain Enter on AI sites, submitting the prompt.
+//
+// Now nothing is remembered. "Is the URL bar focused?" is answered at the
+// moment it is needed, from Firefox's own state:
+//
+//   1. The `focused` attribute Firefox puts on #urlbar in focus handling and
+//      removes in blur handling. Your tcc / ts code already reads live chrome
+//      attributes the same way (#trust-icon-container[open], panelopen).
+//   2. A blur event that arrived after the latest focus event vetoes (1).
+//      Firefox skips removing the attribute while the URL bar's result
+//      context menu is open, but the blur event still fires.
+//   3. Only for the Insert switch (never for Safe Enter): a focus event in
+//      the last 500 ms counts as focused. Firefox focuses the URL bar WITHOUT
+//      the attribute for the new-tab page's search hand-off ("hidden focus").
+//
 // Source: claude-fable-5.1-max
 
 // The text field inside Firefox's URL bar.
 const URLBAR_INPUT_ID = "urlbar-input";
+
+// The element that carries Firefox's own `focused` attribute.
+const URLBAR_ID = "urlbar";
 
 // Re-assert Insert at these delays (ms) after the URL bar gains focus, in
 // case a late Normal request from the previously focused element lands
 // after ours. Bounded on purpose, so you can leave Insert afterwards.
 const URLBAR_INSERT_RECHECK_MS = [0, 50, 150];
 
-// True while the URL bar has focus (tracked from focus/blur events).
-let urlBarFocused = false;
+// A real focus event counts as "focused" for the Insert re-checks for this
+// long. Longer than the re-check delays above, short enough that it can
+// never outlive them in any way that matters.
+const URLBAR_FOCUS_EVENT_WINDOW_MS = 500;
 
-function isUrlBarElement(el: Element | null): boolean {
-    if (!el) return false;
+// Time of the latest real focus event on the URL bar input.
+let urlBarFocusEventAt = 0;
+
+// True once a blur event has arrived after the latest focus event.
+let urlBarBlurredAfterFocus = false;
+
+// Is the URL bar focused RIGHT NOW? Strict and live: no memory, so it can
+// not get stuck. Used wherever a wrong "yes" is harmful (Safe Enter).
+function urlBarFocusedNow(): boolean {
+    const urlbar = document.getElementById(URLBAR_ID);
+
+    if (!urlbar || !urlbar.hasAttribute("focused")) {
+        return false;
+    }
+
+    // Firefox keeps the attribute while its result context menu is open,
+    // but the input's blur event still fires.
+    return !urlBarBlurredAfterFocus;
+}
+
+// A genuine focus event happened a moment ago and focus has not left since.
+function urlBarRecentlyFocusedByEvent(): boolean {
     return (
-        el.id === URLBAR_INPUT_ID ||
-        el.getAttribute?.("anonid") === "input" ||
-        Boolean(el.closest?.("#urlbar"))
+        !urlBarBlurredAfterFocus &&
+        urlBarFocusEventAt > 0 &&
+        Date.now() - urlBarFocusEventAt < URLBAR_FOCUS_EVENT_WINDOW_MS
     );
 }
 
-function isUrlBarCurrentlyFocused(): boolean {
-    const input = document.getElementById(URLBAR_INPUT_ID);
-    if (!input) return false;
-
-    const active = document.activeElement;
-    if (active === input || isUrlBarElement(active)) {
-        return true;
+// For Safe Enter: true when this key belongs to Firefox's URL bar, so the
+// mapping must step aside and let it through untouched.
+function urlBarOwnsKey(key: string): boolean {
+    if (!urlBarFocusedNow()) {
+        return false;
     }
 
-    const urlbar = document.getElementById("urlbar");
-    if (urlbar && urlbar.hasAttribute("focused")) {
-        return true;
-    }
+    console.log(`[safe-enter] URL bar is focused, passing ${key} through to Firefox.`);
 
-    return false;
+    return true;
 }
 
+// Schedule the Insert re-checks. Remembers nothing: every check decides
+// from live evidence when it runs.
 function triggerUrlBarInsert(): void {
-    urlBarFocused = true;
-
     for (const delay of URLBAR_INSERT_RECHECK_MS) {
         setTimeout(() => {
             urlBarEnterInsert().catch((error) => {
@@ -3357,8 +3401,9 @@ function triggerUrlBarInsert(): void {
 }
 
 async function urlBarEnterInsert(): Promise<void> {
-    // Focus already left, e.g. Enter was pressed and the page took over.
-    if (!urlBarFocused && !isUrlBarCurrentlyFocused()) {
+    // Focus already left, e.g. Enter was pressed and the page took over, or
+    // the URL bar was never focused (a new tab whose page took focus).
+    if (!urlBarFocusedNow() && !urlBarRecentlyFocusedByEvent()) {
         return;
     }
 
@@ -3405,6 +3450,9 @@ function hookUrlBar(attempt: number = 0): void {
     input.addEventListener(
         "focus",
         () => {
+            urlBarFocusEventAt = Date.now();
+            urlBarBlurredAfterFocus = false;
+
             triggerUrlBarInsert();
         },
         true,
@@ -3413,7 +3461,8 @@ function hookUrlBar(attempt: number = 0): void {
     input.addEventListener(
         "blur",
         () => {
-            urlBarFocused = false;
+            urlBarBlurredAfterFocus = true;
+            urlBarFocusEventAt = 0;
         },
         true,
     );
@@ -3428,10 +3477,12 @@ glide.autocmds.create("ConfigLoaded", () => {
 
 // 2. Tab changes / new tabs (covers <leader>n, Ctrl+T, tab_new)
 // When a new tab is opened while the URL bar was already focused in Normal mode,
-// Firefox keeps the input focused without re-firing a DOM focus event.
-// We catch that here so new tabs always start in Insert mode.
+// Firefox keeps the input focused without re-firing a DOM focus event. The
+// URL bar's live `focused` attribute still says so, so we catch that here and
+// new tabs start in Insert mode. A new-tab URL on its own schedules the
+// checks but changes nothing unless the URL bar really is focused.
 glide.autocmds.create("UrlEnter", /./, ({ url }) => {
-    if (isNewTabUrl(url) || isUrlBarCurrentlyFocused()) {
+    if (isNewTabUrl(url) || urlBarFocusedNow()) {
         triggerUrlBarInsert();
     }
 });
