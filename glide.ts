@@ -479,6 +479,72 @@ async function focusLargestScrollable(
     });
 }
 
+//9. Most recently used tab
+// browser.tabs.query() returns tabs in tab-strip order, so the old
+// tabs.find(tab => tab.id !== tab_id) always picked the left-most ("top")
+// tab. Firefox records when each tab was last activated in
+// tabs.Tab.lastAccessed, so the other tab with the highest value is the
+// one you were on before this one - no matter where it sits in the strip
+// or when it was opened.
+//
+// This is deliberately stateless: Firefox is asked at the moment tu runs,
+// so it stays correct across tab reordering, closed tabs, other windows,
+// session restore and config reloads. (An MRU list kept in the config
+// would forget everything on reload.)
+
+type TabForMru = {
+    id?: number;
+    hidden?: boolean;
+    lastAccessed?: number;
+};
+
+function mostRecentlyUsedTab(
+    tabs: TabForMru[],
+    currentTabId: number,
+): TabForMru | undefined {
+    const currentIndex = tabs.findIndex(tab => tab.id === currentTabId);
+
+    const candidates = tabs
+        .map((tab, index) => ({ tab, index }))
+        .filter(({ tab }) =>
+            tab.id !== undefined &&
+            tab.id !== currentTabId &&
+            !tab.hidden
+        );
+
+    if (candidates.length === 0) {
+        return undefined;
+    }
+
+    // Tabs Firefox has actually recorded an activation for.
+    const timed = candidates.filter(({ tab }) =>
+        typeof tab.lastAccessed === "number" &&
+        Number.isFinite(tab.lastAccessed) &&
+        tab.lastAccessed > 0
+    );
+
+    if (timed.length > 0) {
+        return timed.reduce((best, entry) =>
+            entry.tab.lastAccessed! > best.tab.lastAccessed!
+                ? entry
+                : best
+        ).tab;
+    }
+
+    // Fallback when no timestamps are available (e.g. a session restored
+    // with zeroed lastAccessed values): the nearest tab, preferring the
+    // one to the left, which is what :tabprevious would pick.
+    const before = candidates
+        .filter(({ index }) => index < currentIndex)
+        .sort((a, b) => b.index - a.index)[0];
+
+    const after = candidates
+        .filter(({ index }) => index > currentIndex)
+        .sort((a, b) => a.index - b.index)[0];
+
+    return (before ?? after)?.tab;
+}
+
 
 //Custom Keybinds and Commands
 
@@ -909,8 +975,8 @@ glide.keymaps.set("normal", "tm", async ({ tab_id }) => {
     description: "Move tab to new window",
 });
 
-//C. tu - Unload current tab after switching to another tab
-// Source: ChatGPT
+//C. tu - Unload current tab after switching to the most recently used tab
+// Source: ChatGPT (MRU selection: claude-fable-5.1-max)
 glide.keymaps.set("normal", "tu", async ({ tab_id }) => {
     const tabs = await browser.tabs.query({
         currentWindow: true,
@@ -922,10 +988,8 @@ glide.keymaps.set("normal", "tu", async ({ tab_id }) => {
         return;
     }
 
-    // Find another tab in the same window.
-    const nextTab = tabs.find(
-        tab => tab.id !== tab_id && !tab.hidden,
-    );
+    // The tab that was active before this one, not the left-most tab.
+    const nextTab = mostRecentlyUsedTab(tabs, tab_id);
 
     if (!nextTab?.id) {
         throw new Error(
@@ -940,7 +1004,7 @@ glide.keymaps.set("normal", "tu", async ({ tab_id }) => {
 
     await glide.tabs.unload(tab_id);
 }, {
-    description: "Unload current tab",
+    description: "Switch to most recently used tab and unload this one",
 });
 
 //D. tU - Unload all tabs except the current one
