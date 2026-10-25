@@ -26,6 +26,10 @@ glide.include("local.ts").catch(() => {});
 //1. Keep full URL protocol (https://) and trailing slashes visible in the address bar
 glide.prefs.set("browser.urlbar.trimURLs", false);
 
+//2. Enable Tab Fadeout When Unloaded
+//Note: This is needed for unloading tabs to play the fade to grey animation when triggered (//6. Tabs section)
+glide.prefs.set("browser.tabs.fadeOutUnloadedTabs", true);
+
 //Functions
 
 //1. clickElement - The function that raps the tab_id: number, selector: string for mapping keybinds to website elements
