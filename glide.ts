@@ -3290,12 +3290,17 @@ glide.autocmds.create(
 // Usage:
 // <Trigger Key> + ew + <Space> -> 🥹
 // <Trigger Key> + check + <Space> -> ✅
+// With the preview enabled, Enter selects the shown emoji; Space and .
+// still confirm exact snippets without an extra step.
 //
 // Snippets are stored with a leading "q", but the "q" does not
 // need to be typed when manually expanding a snippet.
 //
 // The snippet engine only runs while the F4 mapping is active.
 // It does not maintain a background key listener.
+// The preview's command-mode keys pass through outside its picker.
+
+const showCommandLinePreview = true;
 
 const SnippetEngine = {
 
@@ -3465,12 +3470,204 @@ async function insertText(
 
 }
 
+type SnippetFocus = {
+    target: number[] | null;
+    start: number | null;
+    end: number | null;
+    range: {
+        start: number[];
+        startOffset: number;
+        end: number[];
+        endOffset: number;
+    } | null;
+};
+
+// The command line takes focus, so remember the editable element and caret
+// before opening it. DOM paths cross the content-execute boundary safely.
+async function rememberSnippetFocus(tab_id: number): Promise<SnippetFocus> {
+    return await glide.content.execute(() => {
+        const path = (node: Node | null): number[] | null => {
+            if (!node) return null;
+            const indices: number[] = [];
+            while (node !== document) {
+                const parent: Node | null = node.parentNode;
+                if (!parent) return null;
+                indices.unshift(Array.prototype.indexOf.call(parent.childNodes, node));
+                node = parent;
+            }
+            return indices;
+        };
+
+        const target = document.activeElement;
+        const field = target instanceof HTMLInputElement ||
+            target instanceof HTMLTextAreaElement ? target : null;
+        const selection = window.getSelection();
+        const range = target instanceof HTMLElement && target.isContentEditable &&
+                selection?.rangeCount ? selection.getRangeAt(0) : null;
+        const rangeStart = range && path(range.startContainer);
+        const rangeEnd = range && path(range.endContainer);
+
+        return {
+            target: path(target),
+            start: field?.selectionStart ?? null,
+            end: field?.selectionEnd ?? null,
+            range: rangeStart && rangeEnd ? {
+                start: rangeStart,
+                startOffset: range!.startOffset,
+                end: rangeEnd,
+                endOffset: range!.endOffset,
+            } : null,
+        };
+    }, { tab_id });
+}
+
+async function finishSnippetPreview(
+    tab_id: number,
+    focus: SnippetFocus,
+    emoji?: string,
+): Promise<void> {
+    if ((await glide.tabs.active()).id !== tab_id) return;
+
+    await glide.content.execute((saved, text) => {
+        const nodeAt = (indices: number[] | null): Node | null => {
+            if (!indices) return null;
+            let node: Node | null = document;
+            for (const index of indices) {
+                node = node?.childNodes[index] ?? null;
+            }
+            return node;
+        };
+
+        const target = nodeAt(saved.target);
+        if (target instanceof HTMLElement && target.isConnected) {
+            target.focus({ preventScroll: true });
+            if ((target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) &&
+                saved.start !== null && saved.end !== null) {
+                target.setSelectionRange(saved.start, saved.end);
+            } else if (saved.range) {
+                const start = nodeAt(saved.range.start);
+                const end = nodeAt(saved.range.end);
+                if (start && end) {
+                    try {
+                        const range = document.createRange();
+                        range.setStart(start, saved.range.startOffset);
+                        range.setEnd(end, saved.range.endOffset);
+                        const selection = window.getSelection();
+                        selection?.removeAllRanges();
+                        selection?.addRange(range);
+                    } catch {
+                        // The page may have replaced its text while the picker was open.
+                    }
+                }
+            }
+        }
+
+        if (text) document.execCommand("insertText", false, text);
+    }, { tab_id, args: [focus, emoji ?? null] });
+
+    await glide.excmds.execute("mode_change insert");
+}
+
+type SnippetPreviewSession = {
+    tab_id: number;
+    focus: SnippetFocus;
+    query: string;
+    completed: boolean;
+};
+
+let snippetPreviewSession: SnippetPreviewSession | null = null;
+
+async function acceptSnippetPreview(
+    session: SnippetPreviewSession,
+    emoji: string,
+): Promise<void> {
+    if (session.completed) return;
+    session.completed = true;
+    if (snippetPreviewSession === session) snippetPreviewSession = null;
+    await glide.commandline.close();
+    await finishSnippetPreview(session.tab_id, session.focus, emoji);
+}
+
+async function showSnippetPreview(tab_id: number): Promise<void> {
+    const focus = await rememberSnippetFocus(tab_id);
+    const session: SnippetPreviewSession = {
+        tab_id, focus, query: "", completed: false,
+    };
+    snippetPreviewSession = session;
+
+    const onExit = () => {
+        glide.autocmds.remove("CommandLineExit", onExit);
+        // Enter closes the command line before running the selected option.
+        setTimeout(() => {
+            if (session.completed || snippetPreviewSession !== session) return;
+            snippetPreviewSession = null;
+            void finishSnippetPreview(tab_id, focus).catch(error => {
+                console.error("[snippet preview] Could not restore focus:", error);
+            });
+        }, 0);
+    };
+    glide.autocmds.create("CommandLineExit", onExit);
+
+    try {
+        await glide.commandline.show({
+            title: "Emoji snippets",
+            options: Object.entries(SnippetEngine.snippets).map(([key, emoji]) => {
+                const code = key.slice(1);
+                return {
+                    label: code,
+                    description: emoji,
+                    matches({ input }) {
+                        const query = input.trim().toLowerCase();
+                        session.query = query;
+                        return code.startsWith(query);
+                    },
+                    execute({ input }) {
+                        const query = input.trim().toLowerCase();
+                        if (!code.startsWith(query)) return;
+                        void acceptSnippetPreview(session, emoji).catch(error => {
+                            console.error("[snippet preview] Could not insert emoji:", error);
+                        });
+                    },
+                };
+            }),
+        });
+    } catch (error) {
+        glide.autocmds.remove("CommandLineExit", onExit);
+        if (snippetPreviewSession === session) snippetPreviewSession = null;
+        throw error;
+    }
+}
+
+if (showCommandLinePreview) {
+    for (const trigger of SnippetEngine.triggerKeys) {
+        glide.keymaps.set("command", trigger, async () => {
+            const session = snippetPreviewSession;
+            if (!session || !glide.commandline.is_active()) {
+                await glide.keys.send(trigger, { skip_mappings: true });
+                return;
+            }
+
+            const emoji = SnippetEngine.snippets[`q${session.query}`];
+            if (emoji) {
+                await acceptSnippetPreview(session, emoji);
+            } else {
+                await glide.commandline.close();
+            }
+        });
+    }
+}
+
 
 //──────────────────────────────────────────────────────────────
 // Manual snippet expansion
 //──────────────────────────────────────────────────────────────
 
 glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
+
+    if (showCommandLinePreview) {
+        await showSnippetPreview(tab_id);
+        return;
+    }
 
     let typed = "";
 
