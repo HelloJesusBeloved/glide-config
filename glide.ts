@@ -1498,309 +1498,248 @@ glide.keymaps.set("normal", "ts", async ({ tab_id }) => {
     description: "Send current tab to Firefox Sync device",
 });
 
-//F. tcc - Clear current site cookies and data using Firefox's native UI
-//Source: Me & ChatGPT
+// F. tcc — Clear cookies and site data for the current site in Firefox's
+// native trust panel. Click named UI controls through Glide's browser UI hint.
+const clearCurrentSiteData = (() => {
+    const selector = "#trust-icon-container";
+    const requestAttribute = "data-glide-clear-site-request";
+    const runningAttribute = "data-glide-clear-site-running";
+    let busy = false;
 
-safeDel("normal", "tcc");
+    // Invalidate a request left behind by a config reload.
+    document.querySelector(selector)?.removeAttribute(requestAttribute);
+    document.querySelector(selector)?.removeAttribute(runningAttribute);
 
-glide.keymaps.set("normal", "tcc", async ({ tab_id }) => {
-    const pause = (ms: number) =>
-        new Promise<void>(resolve => setTimeout(resolve, ms));
-
-    const press = (key: string) =>
-        glide.keys.send(key, { skip_mappings: true });
-
-    const panelIsOpen = () =>
-        document.getElementById(
-            "trust-icon-container",
-        )?.hasAttribute("open") ?? false;
-
-    const isDisabled = (element: Element) =>
-        element.hasAttribute("disabled") &&
-        element.getAttribute("disabled") !== "false";
-
-    let completed = false;
-
-    try {
-        //──────────────────────────────────────────────────────
-        // 1. Open Firefox's shield panel
-        //──────────────────────────────────────────────────────
-
-        glide.hints.show({
-            location: "browser-ui",
-            selector: "#trust-icon-container",
-            auto_activate: true,
-        });
-
-        let panelReady = false;
-
-        for (let i = 0; i < 50; i++) {
-            const popup = document.getElementById(
-                "trustpanel-popup",
-            );
-
-            if (panelIsOpen() && popup) {
-                panelReady = true;
-                break;
-            }
-
-            await pause(40);
-        }
-
-        if (!panelReady) {
-            console.warn(
-                "[tcc] Trust panel did not open.",
-            );
-            return;
-        }
-
-        await pause(120);
-
-        //──────────────────────────────────────────────────────
-        // 2. Locate the Clear Cookies button
-        //──────────────────────────────────────────────────────
-
-        const clearButton = document.getElementById(
-            "trustpanel-clear-cookies-button",
-        );
-
-        if (!clearButton) {
-            console.warn(
-                "[tcc] Clear Cookies button not found.",
-            );
-            return;
-        }
-
-        if (isDisabled(clearButton)) {
-            console.log(
-                "[tcc] No site data available to clear.",
-            );
-            return;
-        }
-
-        let clearFocused = false;
-
-        const onClearFocus = () => {
-            clearFocused = true;
+    // Runs in the real browser UI and must not capture variables from glide.ts.
+    async function activate(icon: HTMLElement): Promise<"cleared"> {
+        const requestAttribute = "data-glide-clear-site-request";
+        const runningAttribute = "data-glide-clear-site-running";
+        const raw = icon.getAttribute(requestAttribute);
+        if (!raw) throw new Error("tcc request expired or was cancelled.");
+        const request = JSON.parse(raw) as {
+            token: string;
+            linkedPanel: string;
+            expires: number;
         };
+        if (icon.hasAttribute(runningAttribute)) {
+            throw new Error("A tcc request is already running.");
+        }
+        icon.setAttribute(runningAttribute, request.token);
 
-        clearButton.addEventListener(
-            "focus",
-            onClearFocus,
-            true,
-        );
+        const doc = icon.ownerDocument;
+        const win = doc.defaultView!;
+        let cancelled = false;
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === "Escape") cancelled = true;
+        };
+        doc.addEventListener("keydown", onKey, true);
+
+        const panelIsOpen = (panel: Element | null) =>
+            !!panel && (
+                (panel as Element & { state?: string }).state === "open" ||
+                panel.getAttribute("state") === "open" ||
+                panel.getAttribute("panelopen") === "true"
+            );
+        const guard = (panel?: Element) => {
+            if (cancelled || icon.getAttribute(requestAttribute) !== raw ||
+                Date.now() >= request.expires) {
+                throw new Error("tcc cancelled or timed out. Nothing was cleared.");
+            }
+            const selected = doc.querySelector(
+                '.tabbrowser-tab[selected]:not([selected="false"])',
+            );
+            if (selected?.getAttribute("linkedpanel") !== request.linkedPanel) {
+                throw new Error("Active tab changed. Nothing was cleared.");
+            }
+            if (panel && !panelIsOpen(panel)) {
+                throw new Error("Trust panel closed. Nothing was cleared.");
+            }
+        };
+        const visible = (element: Element | null): element is HTMLElement => {
+            if (!element?.isConnected) return false;
+            const css = win.getComputedStyle(element);
+            return css.display !== "none" && css.visibility === "visible" &&
+                element.getClientRects().length > 0;
+        };
+        const disabled = (element: HTMLElement) =>
+            element.matches('[disabled]:not([disabled="false"]), [aria-disabled="true"]');
+        const pause = (ms: number) =>
+            new Promise<void>(resolve => setTimeout(resolve, ms));
+        async function waitFor<T>(
+            read: () => T | null, message: string, panel?: Element,
+        ): Promise<T> {
+            while (Date.now() < request.expires) {
+                // Opening the trust panel can await Firefox's UI update. Do not
+                // require it to be open on the very first polling pass.
+                guard(panel);
+                const value = read();
+                if (value !== null) return value;
+                await pause(35);
+            }
+            throw new Error(message);
+        }
 
         try {
-            // Navigate by button identity, not position.
-            for (let i = 0; i < 15; i++) {
-                if (!panelIsOpen()) {
-                    console.warn(
-                        "[tcc] Trust panel closed.",
-                    );
-                    return;
-                }
-
-                clearFocused = false;
-
-                await press("<Down>");
-                await pause(80);
-
-                if (clearFocused) {
-                    console.log(
-                        `[tcc] Found Clear Cookies after ${i + 1} Down presses.`,
-                    );
-                    break;
-                }
+            guard();
+            if (icon.id !== "trust-icon-container") {
+                throw new Error("Unexpected browser UI target. Nothing was cleared.");
             }
+            icon.click();
+            const popup = await waitFor(() => {
+                const panel = doc.getElementById("trustpanel-popup");
+                return panelIsOpen(panel) ? panel : null;
+            }, "Trust panel did not open.");
 
-            if (!clearFocused || isDisabled(clearButton)) {
-                console.warn(
-                    "[tcc] Clear Cookies could not be selected.",
-                );
-                return;
+            const clear = await waitFor(() => {
+                const button = doc.getElementById("trustpanel-clear-cookies-button");
+                return button && popup.contains(button) && visible(button)
+                    ? button : null;
+            }, "Clear cookies and site data was not available.", popup);
+            guard(popup);
+            if (disabled(clear)) throw new Error("No site data available to clear.");
+            // This is a XUL toolbarbutton. Firefox opens its subview from
+            // `command`, so invoke that native command directly.
+            const command = clear as HTMLElement & { doCommand?: () => void };
+            if (typeof command.doCommand === "function") command.doCommand();
+            else clear.click();
+
+            const confirm = await waitFor(() => {
+                const view = doc.getElementById("trustpanel-clearcookiesView");
+                const button = doc.getElementById("trustpanel-clear-cookie-clear");
+                const switching = view?.closest("panelmultiview")?.hasAttribute("transitioning");
+                return view?.getAttribute("visible") === "true" &&
+                    popup.contains(view) && !switching &&
+                    button && view.contains(button) && visible(button)
+                    ? button : null;
+            }, "Clear site data confirmation did not become ready.", popup);
+
+            guard(popup);
+            if (!confirm.isConnected || disabled(confirm) || !visible(confirm)) {
+                throw new Error("Clear confirmation changed. Nothing was cleared.");
             }
-
-            //──────────────────────────────────────────────────
-            // 3. Prepare to observe the final Clear button
-            //──────────────────────────────────────────────────
-
-            const confirmView = document.getElementById(
-                "trustpanel-clearcookiesView",
-            );
-
-            const confirmButton = document.getElementById(
-                "trustpanel-clear-cookie-clear",
-            );
-
-            if (!confirmView || !confirmButton) {
-                console.warn(
-                    "[tcc] Confirmation controls not found.",
-                );
-                return;
-            }
-
-            let confirmFocused = false;
-
-            const onConfirmFocus = () => {
-                confirmFocused = true;
-                console.log(
-                    "[tcc] Final Clear button focused!",
-                );
-            };
-
-            // Register before opening the confirmation
-            // so we don't miss an initial focus event.
-            confirmButton.addEventListener(
-                "focus",
-                onConfirmFocus,
-                true,
-            );
-
-            try {
-                //──────────────────────────────────────────────
-                // 4. Open the confirmation screen
-                //──────────────────────────────────────────────
-
-                await press("<Enter>");
-                await pause(200);
-
-                if (!panelIsOpen()) {
-                    console.warn(
-                        "[tcc] Confirmation panel closed unexpectedly.",
-                    );
-                    return;
-                }
-
-                //──────────────────────────────────────────────
-                // 5. Find the final Clear button
-                //──────────────────────────────────────────────
-
-                for (
-                    let i = 0;
-                    i < 6 && !confirmFocused;
-                    i++
-                ) {
-                    if (!panelIsOpen()) {
-                        console.warn(
-                            "[tcc] Trust panel closed.",
-                        );
-                        return;
-                    }
-
-                    await press("<Down>");
-                    await pause(80);
-                }
-
-                if (!confirmFocused) {
-                    console.warn(
-                        "[tcc] Final Clear button was not reached.",
-                    );
-                    return;
-                }
-
-                if (isDisabled(confirmButton)) {
-                    console.warn(
-                        "[tcc] Final Clear button is disabled.",
-                    );
-                    return;
-                }
-
-                //──────────────────────────────────────────────
-                // 6. Execute Firefox's native Clear action
-                //──────────────────────────────────────────────
-
-                // Make sure we're still on the original tab.
-                const active = await glide.tabs.active();
-
-                if (active.id !== tab_id) {
-                    console.warn(
-                        "[tcc] Active tab changed. Cancelled.",
-                    );
-                    return;
-                }
-
-                await press("<Enter>");
-
-                // Wait until Firefox dismisses the panel.
-                let panelClosed = false;
-
-                for (let i = 0; i < 50; i++) {
-                    if (!panelIsOpen()) {
-                        panelClosed = true;
-                        break;
-                    }
-
-                    await pause(40);
-                }
-
-                if (!panelClosed) {
-                    console.warn(
-                        "[tcc] Clear action did not close the panel.",
-                    );
-                    return;
-                }
-
-                completed = true;
-
-                console.log(
-                    "[tcc] Firefox's native Clear action activated.",
-                );
-
-                //──────────────────────────────────────────────
-                // 7. Reload the original tab
-                //──────────────────────────────────────────────
-
-                // Give Firefox's asynchronous site-data
-                // removal a chance to proceed.
-                await pause(700);
-
-                if ((await glide.tabs.active()).id === tab_id) {
-                    await browser.tabs.reload(tab_id);
-
-                    console.log(
-                        "[tcc] Reloaded current tab.",
-                    );
-                }
-
-            } finally {
-                confirmButton.removeEventListener(
-                    "focus",
-                    onConfirmFocus,
-                    true,
-                );
-            }
-
+            // Consume before the irreversible click: never automatically retry.
+            icon.removeAttribute(requestAttribute);
+            confirm.click();
+            return "cleared";
         } finally {
-            clearButton.removeEventListener(
-                "focus",
-                onClearFocus,
-                true,
-            );
-        }
-
-    } catch (error) {
-        console.error("[tcc] Failed:", error);
-
-    } finally {
-        //──────────────────────────────────────────────────────
-        // 8. Close the panel if anything failed
-        //──────────────────────────────────────────────────────
-
-        if (!completed && panelIsOpen()) {
-            try {
-                await press("<Esc>");
-
-                console.log(
-                    "[tcc] Cancelled. Closed panel with Esc.",
-                );
-            } catch (error) {
-                console.warn(
-                    "[tcc] Could not close panel:",
-                    error,
-                );
+            doc.removeEventListener("keydown", onKey, true);
+            if (icon.getAttribute(runningAttribute) === request.token) {
+                icon.removeAttribute(runningAttribute);
             }
         }
     }
+
+    async function run(tabId: number): Promise<void> {
+        if (busy) return;
+        const origin = await glide.tabs.active();
+        busy = true;
+        let icon: Element | null = null;
+        let raw = "";
+        let cleared = false;
+        const pause = (ms: number) =>
+            new Promise<void>(resolve => setTimeout(resolve, ms));
+        const panelOpen = () => {
+            const panel = document.getElementById("trustpanel-popup") as
+                (Element & { state?: string }) | null;
+            return panel?.state === "open" || panel?.state === "showing" ||
+                panel?.getAttribute("state") === "open" ||
+                panel?.getAttribute("state") === "showing" ||
+                panel?.getAttribute("panelopen") === "true" ||
+                document.getElementById("trust-icon-container")?.hasAttribute("open") ||
+                document.getElementById("identity-icon-box")?.hasAttribute("open") || false;
+        };
+
+        try {
+            if (origin.id !== tabId) return;
+            if (panelOpen()) {
+                await glide.keys.send("<Esc>", { skip_mappings: true });
+                for (let i = 0; i < 20 && panelOpen(); i++) await pause(35);
+                if (panelOpen()) throw new Error("Trust panel did not close before tcc.");
+            }
+            const linkedPanel = document.querySelector(
+                '.tabbrowser-tab[selected]:not([selected="false"])',
+            )?.getAttribute("linkedpanel");
+            icon = document.querySelector(selector);
+            if (!icon || !linkedPanel) throw new Error("Could not identify the active tab.");
+            const token = crypto.randomUUID();
+            raw = JSON.stringify({ token, linkedPanel, expires: Date.now() + 8000 });
+            icon.setAttribute(requestAttribute, raw);
+            await pause(0); // Let Glide mirror the request onto the actual browser UI.
+
+            await new Promise<"cleared">((resolve, reject) => {
+                let done = false;
+                const timer = setTimeout(() => {
+                    if (done) return;
+                    done = true;
+                    reject(new Error("tcc timed out. Check whether the confirmation is still open."));
+                }, 9000);
+                try {
+                    glide.hints.show({
+                        location: "browser-ui",
+                        selector,
+                        auto_activate: true,
+                        async action({ content }) {
+                            try {
+                                if (done) return;
+                                const current = await glide.tabs.active();
+                                if (current.id !== origin.id || current.url !== origin.url) {
+                                    throw new Error("Tab or URL changed. Nothing was cleared.");
+                                }
+                                const value = await content.execute(activate);
+                                if (!done) {
+                                    done = true;
+                                    clearTimeout(timer);
+                                    resolve(value);
+                                }
+                            } catch (error) {
+                                if (!done) {
+                                    done = true;
+                                    clearTimeout(timer);
+                                    reject(error);
+                                }
+                            }
+                        },
+                    });
+                } catch (error) {
+                    done = true;
+                    clearTimeout(timer);
+                    reject(error);
+                }
+            });
+            cleared = true;
+
+            // Confirmation was clicked. Reload as soon as Firefox dismisses
+            // the panel, without an additional fixed delay.
+            for (let i = 0; i < 125 && panelOpen(); i++) await pause(16);
+            if (panelOpen()) {
+                console.warn("[tcc] Clear was activated, but the panel stayed open. Reload manually if needed.");
+                return;
+            }
+            const current = await glide.tabs.active();
+            if (current.id === origin.id && current.url === origin.url) {
+                await browser.tabs.reload(origin.id);
+            }
+            console.log("[tcc] Firefox's native Clear action activated.");
+        } catch (error) {
+            console.error("[tcc]", error);
+            throw error;
+        } finally {
+            if (icon?.getAttribute(requestAttribute) === raw) {
+                icon.removeAttribute(requestAttribute);
+            }
+            if (!cleared && panelOpen() &&
+                (await glide.tabs.active().catch(() => null))?.id === origin.id) {
+                await glide.keys.send("<Esc>", { skip_mappings: true }).catch(() => {});
+            }
+            busy = false;
+        }
+    }
+    return { run };
+})();
+
+safeDel("normal", "tcc");
+glide.keymaps.set("normal", "tcc", async ({ tab_id }) => {
+    await clearCurrentSiteData.run(tab_id);
 }, {
     description: "Clear current website cookies and site data",
 });
