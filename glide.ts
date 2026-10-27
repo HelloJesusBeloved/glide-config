@@ -1784,6 +1784,42 @@ glide.keymaps.set("normal", "tf", () => {
     description: "Hint tabs, tab groups, and new tab button",
 });
 
+//K. tn - Pick a Firefox container and open a new tab in it.
+// Query on every invocation so renamed, added, and removed containers appear.
+safeDel("normal", "tn");
+glide.keymaps.set("normal", "tn", async ({ tab_id }) => {
+    if (glide.prefs.get("privacy.userContext.enabled") === false) {
+        throw new Error(
+            "Container tabs are disabled. Set privacy.userContext.enabled to true in about:config.",
+        );
+    }
+
+    const containers = await browser.contextualIdentities.query({});
+    if (containers.length === 0) {
+        throw new Error("No Firefox containers are available.");
+    }
+
+    const { windowId } = await browser.tabs.get(tab_id);
+    await glide.commandline.show({
+        title: "New container tab",
+        options: containers.map(container => ({
+            label: container.name,
+            description: `${container.color} · ${container.icon}`,
+            execute() {
+                void browser.tabs.create({
+                    windowId,
+                    cookieStoreId: container.cookieStoreId,
+                    active: true,
+                }).catch(error => {
+                    console.error("[tn] Could not open container tab:", error);
+                });
+            },
+        })),
+    });
+}, {
+    description: "Choose a container for a new tab",
+});
+
 
 //6. Search in a text field containing someone's first and last name for there full name, just their first and just their last
 //Source: Me
