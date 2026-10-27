@@ -643,19 +643,7 @@ glide.keymaps.set("normal", "<leader>N", async () => {
 });
 
 
-//4. Hint Tabs, Tab Groups, and the New Tab button with <leader>F
-//Source: ChatGPT and Me
-glide.keymaps.set("normal", "tf", () => {
-    glide.hints.show({
-        location: "browser-ui",
-        selector: ".tabbrowser-tab, .tab-group-label, #tabs-newtab-button.toolbarbutton-1",
-    });
-}, {
-    description: "Hint tabs, tab groups, and new tab button",
-});
-
-
-//5. Adding more vim motions dw, db, d$, d0, yy, p
+//4. Adding more vim motions dw, db, d$, d0, yy, p
 //Source: Me
 
 //dw - Cut from the cursor through the next word
@@ -959,7 +947,7 @@ glide.keymaps.set(
 );
 
 
-//6. Tabs
+//5. Tabs
 
 //A. Set the current tab's wake lock to on (make's so the computer doesn't sleep)
 //Source: ChatGPT
@@ -1755,7 +1743,7 @@ glide.keymaps.set("normal", "tb", async ({ tab_id }) => {
     description: "Move current tab to bottom",
 });
 
-// th — Put keyboard focus on the selected tab in Firefox's tab strip.
+//H. th — Put keyboard focus on the selected tab in Firefox's tab strip.
 // The config document is a mirror, so focus the real browser UI through a
 // hint action. Hint a visible toolbar button rather than the tab itself:
 // the selected tab may have scrolled outside the visible sidebar.
@@ -1779,8 +1767,25 @@ glide.keymaps.set("normal", "th", () => {
     description: "Focus current tab in the tab sidebar",
 });
 
+//I. tr - Reopen the last closed tab
+//Source: ChatGPT
+glide.keymaps.set("normal", "tr", "tab_reopen", {
+    description: "Reopen last closed tab",
+});
 
-//7. Search in a text field containing someone's first and last name for there full name, just their first and just their last
+//J. Hint Tabs, Tab Groups, and the New Tab button with <leader>F
+//Source: ChatGPT and Me
+glide.keymaps.set("normal", "tf", () => {
+    glide.hints.show({
+        location: "browser-ui",
+        selector: ".tabbrowser-tab, .tab-group-label, #tabs-newtab-button.toolbarbutton-1",
+    });
+}, {
+    description: "Hint tabs, tab groups, and new tab button",
+});
+
+
+//6. Search in a text field containing someone's first and last name for there full name, just their first and just their last
 //Source: Me
 glide.keymaps.set("normal", "<S-n>", async () => {
     const delay = 3000;
@@ -1815,7 +1820,7 @@ glide.keymaps.set("normal", "<S-n>", async () => {
 });
 
 
-//8. Show hints only for Outlook Safe Links and copy the decoded URL with ys in normal mode.
+//7. Show hints only for Outlook Safe Links and copy the decoded URL with ys in normal mode.
 glide.keymaps.set("normal", "ys", () => {
     glide.hints.show({
         selector: "a[href]",
@@ -1864,7 +1869,7 @@ glide.keymaps.set("normal", "ys", () => {
 });
 
 
-//9. Open the copied url in virustotal.com
+//8. Open the copied url in virustotal.com
 //Source: ChatGPT (hardening: Me (claude-fable-5.1-max))
 safeDel("normal", "1u");
 
@@ -1881,7 +1886,7 @@ glide.keymaps.set("normal", "1u", async () => {
 });
 
 
-//10. Open clipboard contents in a new tab
+//9. Open clipboard contents in a new tab
 //Source: ChatGPT (hardening: Me (claude-fable-5.1-max))
 safeDel("normal", "1o");
 
