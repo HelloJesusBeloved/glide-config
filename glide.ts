@@ -1901,64 +1901,7 @@ glide.keymaps.set("normal", "1o", async () => {
 });
 
 
-
-//General Keybind Mapping/Re-mapping
-
-//Re-map Alt h and l to leader h and leader l
-//Source: pretty much the official docs, since I gave them to ChatGPT and it just replaced what I wanted with what they had as an example
-//1. Remove old Alt h and l mappings
-safeDel("normal", "<A-h>");
-safeDel("normal", "<A-l>");
-//2. Add new leader h and l mappings
-glide.keymaps.set("normal", "<leader>h", "back", {
-    description: "Go back in history",
-});
-glide.keymaps.set("normal", "<leader>l", "forward", {
-    description: "Go forward in history",
-});
-
-//Re-map <C-o> and <C-i> to <leader>o and <leader>i
-//Source: Me qc
-//1. Remove og <C-o> and <C-i> mapping
-safeDel("normal", "<C-o>");
-safeDel("normal", "<C-i>");
-//2. Add new <leader>o mapping
-glide.keymaps.set("normal", "<leader>o", "jumplist_back", {
-    description: "Jump back in jumplist",
-});
-glide.keymaps.set("normal", "<leader>i", "jumplist_forward", {
-    description: "Jump forward in jumplist",
-});
-
-//Make so just + and - by themselves adjust zoom level in normal mode
-//Source: Me
-//1. Set = and - to Ctrl + and Ctrl Shift _ in normal mode
-//Note: It apears that "-" cannot be used in <C-->, and there is not an alias listed in the docs that I could see. (<C-"-"> also does not work)
-glide.keymaps.set("normal", "=", async () => {
-    await glide.keys.send("<C-=>");
-}, {
-    description: "Zoom in",
-});
-
-glide.keymaps.set("normal", "-", async () => {
-    await glide.keys.send("<C-S-_>");
-}, {
-    description: "Zoom out",
-});
-
-//Map yl to yank the current tab URL to clipboard
-//Source: Me
-glide.keymaps.set("normal", "yl", "url_yank", {
-    description: "Yank current tab URL",
-});
-
-//Map <leader> + p in normal mode to toggle pin tab
-//Source: Me
-safeDel("normal", "<A-p>");
-glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle", {
-    description: "Toggle pin on current tab",
-});
-
+//No longer used
 //Map Leader s to Shift F10 to open the browser context/autocorrect spelling menu
 //Note: Only works on my Keycron C3 Pro, where I have F3 mapped to the macro Shift + F10, since <S-F10> doesn't work in glide for some reason
 //Note to the Note: When the Glide is sent F3 from glide.keys.send, it doesn't count the Keycrons keybindings, since the physical keyboard isn't actually whats sending the keys qd.
@@ -1968,7 +1911,7 @@ glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle", {
 //      await glide.keys.send("<Apps>");
 //    });
 
-// Ask the OS to send Shift+F10 to Firefox's keyboard-focused element. Glide's
+//10. Ask the OS to send Shift+F10 to Firefox's keyboard-focused element. Glide's
 // synthesized key event reaches pages but may not open Firefox's native menu.
 // On Linux, use the Wayland virtual keyboard or X11's XTEST input as appropriate.
 async function sendNativeContextMenuKey(): Promise<void> {
@@ -2029,6 +1972,72 @@ if (["win", "macosx", "linux"].includes(glide.ctx.os)) {
         description: "Open native context menu at keyboard focus",
     });
 }
+
+
+//11. Focus the largest scrollable element on the page
+//Source: ChatGPT
+glide.keymaps.set("normal", "e", ({ tab_id }) =>
+    focusLargestScrollable(tab_id),
+);
+
+
+
+//General Keybind Mapping/Re-mapping
+
+//Re-map Alt h and l to leader h and leader l
+//Source: pretty much the official docs, since I gave them to ChatGPT and it just replaced what I wanted with what they had as an example
+//1. Remove old Alt h and l mappings
+safeDel("normal", "<A-h>");
+safeDel("normal", "<A-l>");
+//2. Add new leader h and l mappings
+glide.keymaps.set("normal", "<leader>h", "back", {
+    description: "Go back in history",
+});
+glide.keymaps.set("normal", "<leader>l", "forward", {
+    description: "Go forward in history",
+});
+
+//Re-map <C-o> and <C-i> to <leader>o and <leader>i
+//Source: Me qc
+//1. Remove og <C-o> and <C-i> mapping
+safeDel("normal", "<C-o>");
+safeDel("normal", "<C-i>");
+//2. Add new <leader>o mapping
+glide.keymaps.set("normal", "<leader>o", "jumplist_back", {
+    description: "Jump back in jumplist",
+});
+glide.keymaps.set("normal", "<leader>i", "jumplist_forward", {
+    description: "Jump forward in jumplist",
+});
+
+//Make so just + and - by themselves adjust zoom level in normal mode
+//Source: Me
+//1. Set = and - to Ctrl + and Ctrl Shift _ in normal mode
+//Note: It apears that "-" cannot be used in <C-->, and there is not an alias listed in the docs that I could see. (<C-"-"> also does not work)
+glide.keymaps.set("normal", "=", async () => {
+    await glide.keys.send("<C-=>");
+}, {
+    description: "Zoom in",
+});
+
+glide.keymaps.set("normal", "-", async () => {
+    await glide.keys.send("<C-S-_>");
+}, {
+    description: "Zoom out",
+});
+
+//Map yl to yank the current tab URL to clipboard
+//Source: Me
+glide.keymaps.set("normal", "yl", "url_yank", {
+    description: "Yank current tab URL",
+});
+
+//Map <leader> + p in normal mode to toggle pin tab
+//Source: Me
+safeDel("normal", "<A-p>");
+glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle", {
+    description: "Toggle pin on current tab",
+});
 
 //Map u in normal mode to Ctrl + z
 safeDel("normal", "u");
