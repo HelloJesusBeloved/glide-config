@@ -1755,6 +1755,30 @@ glide.keymaps.set("normal", "tb", async ({ tab_id }) => {
     description: "Move current tab to bottom",
 });
 
+// th — Put keyboard focus on the selected tab in Firefox's tab strip.
+// The config document is a mirror, so focus the real browser UI through a
+// hint action. Hint a visible toolbar button rather than the tab itself:
+// the selected tab may have scrolled outside the visible sidebar.
+safeDel("normal", "th");
+glide.keymaps.set("normal", "th", () => {
+    glide.hints.show({
+        location: "browser-ui",
+        selector: "#PanelUI-menu-button",
+        auto_activate: true,
+        async action({ content }) {
+            await content.execute((anchor) => {
+                const tab = anchor.ownerDocument.querySelector<HTMLElement>(
+                    '.tabbrowser-tab[selected]:not([selected="false"])',
+                );
+                if (!tab) throw new Error("No selected Firefox tab found.");
+                tab.focus();
+            });
+        },
+    });
+}, {
+    description: "Focus current tab in the tab sidebar",
+});
+
 
 //7. Search in a text field containing someone's first and last name for there full name, just their first and just their last
 //Source: Me
