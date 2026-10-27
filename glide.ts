@@ -601,13 +601,13 @@ glide.keymaps.set(["normal", "visual"], "`", async ({ tab_id }) => {
 });
 
 
-//3. Open keyword bookmark in a new tab with <leader>N
+//3. Open keyword bookmark in a new tab with n in normal mode
 // Opens a dedicated commandline prompt to enter a Firefox keyword bookmark or search query
 // without needing to type :ne first.
 //Source: ChatGPT & Me
-safeDel("normal", "<leader>N");
+safeDel("normal", "n");
 
-glide.keymaps.set("normal", "<leader>N", async () => {
+glide.keymaps.set("normal", "n", async () => {
     await glide.commandline.show({
         title: "keyword",
         options: [
@@ -1773,7 +1773,7 @@ glide.keymaps.set("normal", "tr", "tab_reopen", {
     description: "Reopen last closed tab",
 });
 
-//J. Hint Tabs, Tab Groups, and the New Tab button with <leader>F
+//J. tf - Hint Tabs, Tab Groups, and the New Tab button with <leader>F
 //Source: ChatGPT and Me
 glide.keymaps.set("normal", "tf", () => {
     glide.hints.show({
@@ -1784,10 +1784,10 @@ glide.keymaps.set("normal", "tf", () => {
     description: "Hint tabs, tab groups, and new tab button",
 });
 
-//K. tn - Pick a Firefox container and open a new tab in it.
+//K. <leader>N - Pick a Firefox container and open a new tab in it.
 // Query on every invocation so renamed, added, and removed containers appear.
-safeDel("normal", "tn");
-glide.keymaps.set("normal", "tn", async ({ tab_id }) => {
+safeDel("normal", "<leader>N");
+glide.keymaps.set("normal", "<leader>N", async ({ tab_id }) => {
     if (glide.prefs.get("privacy.userContext.enabled") === false) {
         throw new Error(
             "Container tabs are disabled. Set privacy.userContext.enabled to true in about:config.",
@@ -1823,7 +1823,7 @@ glide.keymaps.set("normal", "tn", async ({ tab_id }) => {
 
 //6. Search in a text field containing someone's first and last name for there full name, just their first and just their last
 //Source: Me
-glide.keymaps.set("normal", "<S-n>", async () => {
+glide.keymaps.set("normal", "2n", async () => {
     const delay = 3000;
 
     await glide.excmds.execute("mode_change insert");
