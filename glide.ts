@@ -1968,6 +1968,68 @@ glide.keymaps.set("normal", "<leader>p", "tab_pin_toggle", {
 //      await glide.keys.send("<Apps>");
 //    });
 
+// Ask the OS to send Shift+F10 to Firefox's keyboard-focused element. Glide's
+// synthesized key event reaches pages but may not open Firefox's native menu.
+// On Linux, use the Wayland virtual keyboard or X11's XTEST input as appropriate.
+async function sendNativeContextMenuKey(): Promise<void> {
+    switch (glide.ctx.os) {
+        case "win": {
+            const windowsDir = glide.env.get("WINDIR") ?? "C:\\Windows";
+            const powershell =
+                `${windowsDir}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+
+            await glide.process.execute(powershell, [
+                "-NoLogo", "-NoProfile", "-NonInteractive", "-Sta",
+                "-WindowStyle", "Hidden", "-Command",
+                "Add-Type -AssemblyName System.Windows.Forms; " +
+                    "[System.Windows.Forms.SendKeys]::SendWait('+{F10}')",
+            ]);
+            return;
+        }
+
+        case "macosx":
+            // System Events needs Accessibility permission. Firefox on macOS
+            // may still ignore Shift+F10 because it has no native binding.
+            await glide.process.execute("/usr/bin/osascript", [
+                "-e",
+                'tell application "System Events" to key code 109 using {shift down}',
+            ]);
+            return;
+
+        case "linux": {
+            const session = glide.env.get("XDG_SESSION_TYPE")?.toLowerCase();
+            if (session === "wayland" ||
+                (!session && glide.env.get("WAYLAND_DISPLAY"))) {
+                await glide.process.execute("wtype", [
+                    "-M", "shift", "-k", "F10", "-m", "shift",
+                ]);
+                return;
+            }
+
+            if (session === "x11" || glide.env.get("DISPLAY")) {
+                await glide.process.execute("xdotool", [
+                    "key", "--clearmodifiers", "Shift+F10",
+                ]);
+                return;
+            }
+
+            throw new Error("No Wayland or X11 display found for z.");
+        }
+
+        default:
+            throw new Error("Native context-menu input is unsupported on this OS.");
+    }
+}
+
+if (["win", "macosx", "linux"].includes(glide.ctx.os)) {
+    safeDel("normal", "z");
+    glide.keymaps.set("normal", "z", async () => {
+        await sendNativeContextMenuKey();
+    }, {
+        description: "Open native context menu at keyboard focus",
+    });
+}
+
 //Map u in normal mode to Ctrl + z
 safeDel("normal", "u");
 glide.keymaps.set("normal", "u", async () => {
