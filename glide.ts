@@ -645,7 +645,7 @@ glide.keymaps.set("normal", "<leader>N", async () => {
 
 //4. Hint Tabs, Tab Groups, and the New Tab button with <leader>F
 //Source: ChatGPT and Me
-glide.keymaps.set("normal", "<leader>F", () => {
+glide.keymaps.set("normal", "tf", () => {
     glide.hints.show({
         location: "browser-ui",
         selector: ".tabbrowser-tab, .tab-group-label, #tabs-newtab-button.toolbarbutton-1",
