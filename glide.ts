@@ -900,6 +900,20 @@ glide.keymaps.set("visual", "w", async ({ tab_id }) => {
     description: "Extend selection forward one word",
 });
 
+//g. Visual-mode d: cut selected text to the system clipboard.
+safeDel("visual", "d");
+glide.keymaps.set("visual", "d", async ({ tab_id }) => {
+    const selected = await glide.content.execute(
+        () => window.getSelection()?.toString() ?? "",
+        { tab_id },
+    );
+
+    if (!selected) return;
+    await navigator.clipboard.writeText(selected);
+    await glide.keys.send("<Del>");
+    await glide.excmds.execute("mode_change normal");
+}, { description: "Cut selected text to clipboard" });
+
 
 //shift o to insert a line above in normal mode
 safeDel("normal", "<S-o>");
