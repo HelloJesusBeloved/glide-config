@@ -3738,6 +3738,221 @@ glide.keymaps.set("insert", snippetCopyTriggerKey, async ({ tab_id }) => {
     description: "Copy emoji snippet from command line preview",
 });
 
+//2. Local text snippet history
+// Explicit saves only. This file stays in the local Glide profile, outside
+// the Git-backed config directory; it is never sent to a service.
+// Change m or , here to change the entire corresponding key family.
+const textSnippetPrefix = "m";
+const textSnippetPasteSymbol = ",";
+const textSnippetEntryCap = 100;
+
+const textSnippetSaveKey = `<C-${textSnippetPrefix}>`;
+const textSnippetPasteNewestKey = `<C-${textSnippetPasteSymbol}>`;
+const textSnippetPasteSecondKey = `<C-A-${textSnippetPasteSymbol}>`;
+// On a US layout, Shift+, produces <. Glide names that key <lt>.
+const textSnippetPasteThirdKey = textSnippetPasteSymbol === ","
+    ? "<C-A-lt>"
+    : `<C-S-A-${textSnippetPasteSymbol}>`;
+const textSnippetDeleteNewestKey = `${textSnippetPrefix}dm`;
+const textSnippetDeleteCountKeys = Array.from({ length: 9 }, (_, i) =>
+    `${textSnippetPrefix}d${i + 1}`);
+const textSnippetDeleteAllKey = `${textSnippetPrefix}dac`;
+const textSnippetOpenKey = `${textSnippetPrefix}o`;
+const textSnippetCopyKey = `${textSnippetPrefix}c`;
+
+// Use Glide's native path join so Windows profile paths stay absolute.
+const textSnippetFile = glide.path.join(
+    glide.path.profile_dir,
+    "glide-text-snippets.json",
+);
+let textSnippetCache: Promise<string[]> | null = null;
+let textSnippetWrites: Promise<void> = Promise.resolve();
+
+async function textSnippetRead(): Promise<string[]> {
+    if (!textSnippetCache) {
+        const pending = (async () => {
+            if (!(await glide.fs.exists(textSnippetFile))) return [];
+            const raw = await glide.fs.read(textSnippetFile, "utf8");
+            let data: unknown;
+            try {
+                data = JSON.parse(raw);
+            } catch {
+                throw new Error("Saved text snippet file is malformed; nothing was overwritten.");
+            }
+            if (!data || typeof data !== "object" ||
+                (data as { version?: unknown }).version !== 1 ||
+                !Array.isArray((data as { entries?: unknown }).entries) ||
+                !(data as { entries: unknown[] }).entries.every(item => typeof item === "string")) {
+                throw new Error("Saved text snippet file has an unknown format; nothing was overwritten.");
+            }
+            return (data as { entries: string[] }).entries.slice(0, textSnippetEntryCap);
+        })();
+        textSnippetCache = pending;
+        void pending.catch(() => {
+            if (textSnippetCache === pending) textSnippetCache = null;
+        });
+    }
+    return await textSnippetCache;
+}
+
+// Serialize reads and writes so rapid saves and deletes cannot lose entries.
+async function textSnippetList(): Promise<string[]> {
+    await textSnippetWrites;
+    return [...await textSnippetRead()];
+}
+
+function textSnippetChange(update: (items: string[]) => string[] | null): Promise<void> {
+    const task = textSnippetWrites.then(async () => {
+        const previous = await textSnippetRead();
+        const next = update([...previous]);
+        if (!next) return;
+        await glide.fs.write(textSnippetFile, JSON.stringify({ version: 1, entries: next }));
+        textSnippetCache = Promise.resolve(next);
+    });
+    textSnippetWrites = task.catch(() => {});
+    return task;
+}
+
+async function textSnippetSelection(tab_id: number): Promise<string> {
+    return await glide.content.execute(() => {
+        if (!document.hasFocus()) return "";
+        const active = document.activeElement;
+        if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+            const start = active.selectionStart;
+            const end = active.selectionEnd;
+            return start !== null && end !== null && end > start
+                ? active.value.slice(start, end) : "";
+        }
+        return window.getSelection()?.toString() ?? "";
+    }, { tab_id });
+}
+
+async function textSnippetPaste(tab_id: number, text: string): Promise<void> {
+    if ((await glide.tabs.active()).id !== tab_id) return;
+    const inserted = await glide.content.execute((value) => {
+        const active = document.activeElement;
+        if (!(active instanceof HTMLInputElement ||
+            active instanceof HTMLTextAreaElement ||
+            (active instanceof HTMLElement && active.isContentEditable))) return false;
+        return document.execCommand("insertText", false, value);
+    }, { tab_id, args: [text] });
+    if (!inserted) throw new Error("Focus an editable field before pasting a saved snippet.");
+    await glide.excmds.execute("mode_change insert");
+}
+
+async function textSnippetPicker(tab_id: number, copy: boolean): Promise<void> {
+    const items = await textSnippetList();
+    if (!items.length) throw new Error("No saved text snippets.");
+    if (!copy) {
+        const editable = await glide.content.execute(() => {
+            const active = document.activeElement;
+            return active instanceof HTMLInputElement ||
+                active instanceof HTMLTextAreaElement ||
+                (active instanceof HTMLElement && active.isContentEditable);
+        }, { tab_id });
+        if (!editable) throw new Error("Focus an editable field before opening the paste list.");
+    }
+
+    const focus = await rememberSnippetFocus(tab_id);
+    let selected = false;
+    const restore = async (text?: string) => {
+        if ((await glide.tabs.active()).id !== tab_id) return;
+        await finishSnippetPreview(tab_id, focus, text);
+        if (text === undefined) await glide.excmds.execute("mode_change normal");
+    };
+    const onExit = () => {
+        glide.autocmds.remove("CommandLineExit", onExit);
+        // The command line closes before executing its highlighted option.
+        setTimeout(() => {
+            if (!selected) void restore().catch(error => console.error("[text snippets]", error));
+        }, 0);
+    };
+    glide.autocmds.create("CommandLineExit", onExit);
+    try {
+        await glide.commandline.show({
+            title: copy ? "Copy saved text" : "Paste saved text",
+            options: items.map((text, index) => {
+                const preview = text.replace(/\s+/g, " ").slice(0, 90);
+                const searchable = text.toLowerCase();
+                return {
+                    label: `${index + 1}. ${preview}${text.length > 90 ? "…" : ""}`,
+                    description: `${text.length} characters`,
+                    matches({ input }) {
+                        const query = input.trim().toLowerCase();
+                        return !query || searchable.includes(query) ||
+                            String(index + 1) === query;
+                    },
+                    execute() {
+                        selected = true;
+                        void (async () => {
+                            if ((await glide.tabs.active()).id !== tab_id) return;
+                            if (copy) {
+                                try {
+                                    await navigator.clipboard.writeText(text);
+                                } finally {
+                                    await restore();
+                                }
+                            } else {
+                                await restore(text);
+                            }
+                        })().catch(error => console.error("[text snippets]", error));
+                    },
+                };
+            }),
+        });
+    } catch (error) {
+        glide.autocmds.remove("CommandLineExit", onExit);
+        throw error;
+    }
+}
+
+glide.keymaps.set(["normal", "insert", "visual"], textSnippetSaveKey, async ({ tab_id }) => {
+    if ((await glide.tabs.active()).id !== tab_id) return;
+    const selected = await textSnippetSelection(tab_id);
+    const text = selected || await navigator.clipboard.readText();
+    if (!text) throw new Error("Nothing selected and the clipboard is empty.");
+    await textSnippetChange(items => {
+        if (items[0] === text) return null;
+        return [text, ...items].slice(0, textSnippetEntryCap);
+    });
+}, { description: "Save selected text or clipboard to local snippet history" });
+
+// Replace Glide's built-in Ctrl+, blur mapping in Normal and Insert mode.
+safeDel(["normal", "insert"], textSnippetPasteNewestKey);
+for (const [key, index] of [
+    [textSnippetPasteNewestKey, 0],
+    [textSnippetPasteSecondKey, 1],
+    [textSnippetPasteThirdKey, 2],
+] as const) {
+    glide.keymaps.set(["normal", "insert", "visual"], key, async ({ tab_id }) => {
+        const text = (await textSnippetList())[index];
+        if (text === undefined) throw new Error(`No saved snippet at position ${index + 1}.`);
+        await textSnippetPaste(tab_id, text);
+    }, { description: `Paste saved text snippet ${index + 1} from newest` });
+}
+
+glide.keymaps.set("normal", textSnippetDeleteNewestKey, async () => {
+    await textSnippetChange(items => items.length ? items.slice(1) : null);
+}, { description: "Delete newest saved text snippet" });
+
+textSnippetDeleteCountKeys.forEach((key, index) => {
+    glide.keymaps.set("normal", key, async () => {
+        await textSnippetChange(items => items.length ? items.slice(index + 1) : null);
+    }, { description: `Delete ${index + 1} newest saved text snippets` });
+});
+
+glide.keymaps.set("normal", textSnippetDeleteAllKey, async () => {
+    await textSnippetChange(items => items.length ? [] : null);
+}, { description: "Clear all saved text snippets" });
+
+glide.keymaps.set("normal", textSnippetOpenKey, async ({ tab_id }) => {
+    await textSnippetPicker(tab_id, false);
+}, { description: "Pick saved text to paste" });
+
+glide.keymaps.set("normal", textSnippetCopyKey, async ({ tab_id }) => {
+    await textSnippetPicker(tab_id, true);
+}, { description: "Pick saved text to copy to clipboard" });
+
 
 
 
