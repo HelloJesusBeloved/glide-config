@@ -3281,7 +3281,7 @@ glide.autocmds.create(
 //1.
 //──────────────────────────────────────────────────────────────
 // Glide Snippet Engine 1.0
-// Manual Keyword snippet expansion (Trigger Key: <F4>)
+// Manual Keyword snippet expansion (default trigger: <F4>)
 //──────────────────────────────────────────────────────────────
 // Note: Caps Lock is remapped to F4 on my Windows work keyboard,
 // so that I can use Alt + Caps Lock to close windows, so you may
@@ -3296,11 +3296,15 @@ glide.autocmds.create(
 // Snippets are stored with a leading "q", but the "q" does not
 // need to be typed when manually expanding a snippet.
 //
-// The snippet engine only runs while the F4 mapping is active.
+// The snippet engine only runs while a snippet mapping is active.
 // It does not maintain a background key listener.
 // The preview's command-mode keys pass through outside its picker.
 
-const showCommandLinePreview = true;
+const snippetTriggerKey = "<F4>";
+const showCommandLinePreviewWithsnippetTriggerKey = false;
+
+const snippetAltTriggerKey = "<S-F4>";
+
 
 const SnippetEngine = {
 
@@ -3638,23 +3642,22 @@ async function showSnippetPreview(tab_id: number): Promise<void> {
     }
 }
 
-if (showCommandLinePreview) {
-    for (const trigger of SnippetEngine.triggerKeys) {
-        glide.keymaps.set("command", trigger, async () => {
-            const session = snippetPreviewSession;
-            if (!session || !glide.commandline.is_active()) {
-                await glide.keys.send(trigger, { skip_mappings: true });
-                return;
-            }
+// Shift+F4 always uses the preview, even when the default mapping does not.
+for (const trigger of SnippetEngine.triggerKeys) {
+    glide.keymaps.set("command", trigger, async () => {
+        const session = snippetPreviewSession;
+        if (!session || !glide.commandline.is_active()) {
+            await glide.keys.send(trigger, { skip_mappings: true });
+            return;
+        }
 
-            const emoji = SnippetEngine.snippets[`q${session.query}`];
-            if (emoji) {
-                await acceptSnippetPreview(session, emoji);
-            } else {
-                await glide.commandline.close();
-            }
-        });
-    }
+        const emoji = SnippetEngine.snippets[`q${session.query}`];
+        if (emoji) {
+            await acceptSnippetPreview(session, emoji);
+        } else {
+            await glide.commandline.close();
+        }
+    });
 }
 
 
@@ -3662,9 +3665,9 @@ if (showCommandLinePreview) {
 // Manual snippet expansion
 //──────────────────────────────────────────────────────────────
 
-glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
+glide.keymaps.set("insert", snippetTriggerKey, async ({ tab_id }) => {
 
-    if (showCommandLinePreview) {
+    if (showCommandLinePreviewWithsnippetTriggerKey) {
         await showSnippetPreview(tab_id);
         return;
     }
@@ -3711,6 +3714,12 @@ glide.keymaps.set("insert", "<F4>", async ({ tab_id }) => {
 
 }, {
     description: "Expand keyword snippet",
+});
+
+glide.keymaps.set("insert", snippetAltTriggerKey, async ({ tab_id }) => {
+    await showSnippetPreview(tab_id);
+}, {
+    description: "Expand emoji snippet with command line preview",
 });
 
 
