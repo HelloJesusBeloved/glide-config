@@ -3304,6 +3304,7 @@ const snippetTriggerKey = "<F4>";
 const showCommandLinePreviewWithsnippetTriggerKey = false;
 
 const snippetAltTriggerKey = "<S-F4>";
+const snippetCopyTriggerKey = "<C-S-F4>";
 
 
 const SnippetEngine = {
@@ -3577,6 +3578,7 @@ type SnippetPreviewSession = {
     focus: SnippetFocus;
     query: string;
     completed: boolean;
+    copy: boolean;
 };
 
 let snippetPreviewSession: SnippetPreviewSession | null = null;
@@ -3589,13 +3591,21 @@ async function acceptSnippetPreview(
     session.completed = true;
     if (snippetPreviewSession === session) snippetPreviewSession = null;
     await glide.commandline.close();
-    await finishSnippetPreview(session.tab_id, session.focus, emoji);
+    try {
+        if (session.copy) await navigator.clipboard.writeText(emoji);
+    } finally {
+        await finishSnippetPreview(
+            session.tab_id,
+            session.focus,
+            session.copy ? undefined : emoji,
+        );
+    }
 }
 
-async function showSnippetPreview(tab_id: number): Promise<void> {
+async function showSnippetPreview(tab_id: number, copy = false): Promise<void> {
     const focus = await rememberSnippetFocus(tab_id);
     const session: SnippetPreviewSession = {
-        tab_id, focus, query: "", completed: false,
+        tab_id, focus, query: "", completed: false, copy,
     };
     snippetPreviewSession = session;
 
@@ -3614,7 +3624,7 @@ async function showSnippetPreview(tab_id: number): Promise<void> {
 
     try {
         await glide.commandline.show({
-            title: "Emoji snippets",
+            title: copy ? "Copy emoji to clipboard" : "Emoji snippets",
             options: Object.entries(SnippetEngine.snippets).map(([key, emoji]) => {
                 const code = key.slice(1);
                 return {
@@ -3720,6 +3730,12 @@ glide.keymaps.set("insert", snippetAltTriggerKey, async ({ tab_id }) => {
     await showSnippetPreview(tab_id);
 }, {
     description: "Expand emoji snippet with command line preview",
+});
+
+glide.keymaps.set("insert", snippetCopyTriggerKey, async ({ tab_id }) => {
+    await showSnippetPreview(tab_id, true);
+}, {
+    description: "Copy emoji snippet from command line preview",
 });
 
 
