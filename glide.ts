@@ -3732,11 +3732,12 @@ glide.keymaps.set("insert", snippetAltTriggerKey, async ({ tab_id }) => {
     description: "Expand emoji snippet with command line preview",
 });
 
-glide.keymaps.set("insert", snippetCopyTriggerKey, async ({ tab_id }) => {
+glide.keymaps.set("normal", snippetCopyTriggerKey, async ({ tab_id }) => {
     await showSnippetPreview(tab_id, true);
 }, {
     description: "Copy emoji snippet from command line preview",
 });
+
 
 //2. Local text snippet history
 // Explicit saves only. This file stays in the local Glide profile, outside
