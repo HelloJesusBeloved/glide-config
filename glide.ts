@@ -3759,6 +3759,8 @@ const textSnippetDeleteCountKeys = Array.from({ length: 9 }, (_, i) =>
 const textSnippetDeleteAllKey = `${textSnippetPrefix}dac`;
 const textSnippetOpenKey = `${textSnippetPrefix}o`;
 const textSnippetCopyKey = `${textSnippetPrefix}c`;
+const textSnippetYankLineKey = `${textSnippetPrefix}yy`;
+const textSnippetDeleteLineKey = `${textSnippetPrefix}dd`;
 
 // Use Glide's native path join so Windows profile paths stay absolute.
 const textSnippetFile = glide.path.join(
@@ -3811,6 +3813,13 @@ function textSnippetChange(update: (items: string[]) => string[] | null): Promis
     });
     textSnippetWrites = task.catch(() => {});
     return task;
+}
+
+async function textSnippetStore(text: string): Promise<void> {
+    await textSnippetChange(items => {
+        if (items[0] === text) return null;
+        return [text, ...items].slice(0, textSnippetEntryCap);
+    });
 }
 
 async function textSnippetSelection(tab_id: number): Promise<string> {
@@ -3911,11 +3920,33 @@ glide.keymaps.set(["normal", "insert", "visual"], textSnippetSaveKey, async ({ t
     const selected = await textSnippetSelection(tab_id);
     const text = selected || await navigator.clipboard.readText();
     if (!text) throw new Error("Nothing selected and the clipboard is empty.");
-    await textSnippetChange(items => {
-        if (items[0] === text) return null;
-        return [text, ...items].slice(0, textSnippetEntryCap);
-    });
+    await textSnippetStore(text);
 }, { description: "Save selected text or clipboard to local snippet history" });
+
+// myy mirrors yy's line selection, but saves locally without changing the clipboard.
+glide.keymaps.set("normal", textSnippetYankLineKey, async ({ tab_id }) => {
+    if ((await glide.tabs.active()).id !== tab_id) return;
+    await glide.keys.send("<Home><S-End>", { skip_mappings: true });
+    try {
+        const text = await textSnippetSelection(tab_id);
+        if (text) await textSnippetStore(text);
+    } finally {
+        await glide.keys.send("<Right>", { skip_mappings: true });
+    }
+}, { description: "Save current line to local text snippet history" });
+
+// mdd mirrors dd: save the line, then remove its text and following newline.
+// Save before editing, so a failed write leaves the line untouched.
+glide.keymaps.set("normal", textSnippetDeleteLineKey, async ({ tab_id }) => {
+    if ((await glide.tabs.active()).id !== tab_id) return;
+    await glide.keys.send("<Home><S-End>", { skip_mappings: true });
+    const text = await textSnippetSelection(tab_id);
+    if (text) await textSnippetStore(text);
+    await glide.keys.send(
+        text ? "<Backspace><Delete>" : "<Delete>",
+        { skip_mappings: true },
+    );
+}, { description: "Save current line to snippet history and delete it" });
 
 // Replace Glide's built-in Ctrl+, blur mapping in Normal and Insert mode.
 safeDel(["normal", "insert"], textSnippetPasteNewestKey);
