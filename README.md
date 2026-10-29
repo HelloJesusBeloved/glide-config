@@ -188,11 +188,11 @@ That means a stray `glide.ts` in whatever folder you launched Glide from will si
 real config. When in doubt, ask Glide directly — press `:` to open the command line, then run:
 
 ```
-:config_path
+config_path
 ```
 
 It prints the exact file Glide resolved. From the same command line you can also run
-`:config_init home` (create the config directory), `:config_reload` (reload it) and `:config_edit`
+`config_init home` (create the config directory), `config_reload` (reload it) and `config_edit`
 (open it in your default editor).
 
 | OS | Default location created by `:config_init home` |
@@ -329,19 +329,19 @@ type checking in your editor in every supported location.
 Open Glide, press `:` to open the command line, and run:
 
 ```
-:config_init home
+config_init home
 ```
 
 Then confirm where it landed:
 
 ```
-:config_path
+config_path
 ```
 
 Open it in your editor without leaving the browser:
 
 ```
-:config_edit
+config_edit
 ```
 
 </details>
@@ -352,7 +352,7 @@ Open it in your editor without leaving the browser:
 1. Launch Glide and press `:` to open the command line.
 2. Type **`config_init home`** and press `Enter` — this is the only supported way to generate the
    boilerplate `glide.d.ts`, so even the GUI route uses it once.
-3. Need to see the folder? Run **`:config_path`** and copy the path it prints.
+3. Need to see the folder? Run **`config_path`** and copy the path it prints.
 4. Paste that path into Finder (**Go → Go to Folder**), Explorer's address bar, or your Linux file
    manager's location bar to open it directly.
 
@@ -381,7 +381,7 @@ git clone https://github.com/HelloJesusBeloved/glide-config.git
 Copy-Item glide-config\glide.ts "$env:USERPROFILE\.config\glide\glide.ts" -Force
 ```
 
-Then reload from inside Glide with `<leader>c` (this config's mapping) or `:config_reload`.
+Then reload from inside Glide with `:config_reload` or `<leader>c` (this config's reload mapping, only works after the first manual reload after you have installed this config).
 
 </details>
 
@@ -393,7 +393,7 @@ Then reload from inside Glide with `<leader>c` (this config's mapping) or `:conf
 3. In Glide, press `:` → **`config_path`** and copy the path.
 4. Open that folder in your file manager, then copy the downloaded **`glide.ts`** over the existing
    one (or drag it in and choose **Replace**).
-5. Back in Glide, run **`:config_reload`** or press `<leader>c`.
+5. Back in Glide, run **`:config_reload`** or press `<leader>c` (this config's reload mapping, only works after the first manual reload after you have installed this config).
 
 </details>
 
