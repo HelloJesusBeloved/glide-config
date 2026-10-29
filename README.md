@@ -15,9 +15,7 @@
 
 <br />
 
-*"One of the best things to grace mankind."*
-*"Vim based, fully — and when I say fully I mean pretty stinkin' near 100% fully — customizable."*
-*"Any key can do almost anything that is physically possible without writing your own browser."* 😎
+*"One of the best things to grace mankind. Vim based, fully — and when I say fully I mean pretty stinkin' near 100% fully — customizable. Any key can do almost anything that is physically possible without writing your own browser."* 😎
 
 </div>
 
@@ -147,7 +145,7 @@ The engine also remembers exactly where your caret was before the picker opened 
 selection range, everything — and restores it perfectly after you insert, so your cursor never jumps
 around unexpectedly.
 
-Note: `Caps Lock` is remapped to `F4` on the author's Windows work keyboard, so if you use `Alt +
+Note: `Caps Lock` is remapped to `F4` on my Windows work keyboard, so if you use `Alt +
 Caps Lock` to close windows you may want to remap the trigger to something easier to hit.
 
 ### A local, private text snippet stash
