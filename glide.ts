@@ -30,6 +30,9 @@ glide.prefs.set("browser.urlbar.trimURLs", false);
 //Note: This is needed for unloading tabs to play the fade to grey animation when triggered (//6. Tabs section)
 glide.prefs.set("browser.tabs.fadeOutUnloadedTabs", true);
 
+//3. Make tabs open at the bottom of the tab list instead of underneath the current tab
+glide.prefs.set("browser.tabs.insertRelatedAfterCurrent", false);
+
 //Functions
 
 //1. clickElement - The function that raps the tab_id: number, selector: string for mapping keybinds to website elements
@@ -1838,17 +1841,9 @@ glide.keymaps.set("normal", "<leader>N", async ({ tab_id }) => {
 //6. Search in a text field containing someone's first and last name for there full name, just their first and just their last
 //Source: Me
 glide.keymaps.set("normal", "2n", async () => {
-    const delay = 3000;
+    const delay = 1500;
 
     await glide.excmds.execute("mode_change insert");
-
-    await glide.keys.send("<C-a>");
-    await glide.keys.send("<C-c>");
-    await glide.keys.send("<Right>");
-
-
-    await glide.keys.send("<Enter>");
-    await new Promise(resolve => setTimeout(resolve, delay));
 
     await glide.keys.send("<C-Backspace>");
     await glide.keys.send("<Backspace>");
