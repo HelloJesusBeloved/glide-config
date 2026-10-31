@@ -28,7 +28,8 @@ glide.prefs.set("browser.urlbar.trimURLs", false);
 
 //2. Enable Tab Fadeout When Unloaded
 //Note: This is needed for unloading tabs to play the fade to grey animation when triggered (//6. Tabs section)
-glide.prefs.set("browser.tabs.fadeOutUnloadedTabs", true);
+//Note to the Note, I decided I don't want this after all so I set it to false
+glide.prefs.set("browser.tabs.fadeOutUnloadedTabs", false);
 
 //3. Make tabs open at the bottom of the tab list instead of underneath the current tab
 glide.prefs.set("browser.tabs.insertRelatedAfterCurrent", false);
