@@ -969,7 +969,7 @@ glide.keymaps.set(
 
 //A. Set the current tab's wake lock to on (make's so the computer doesn't sleep)
 //Source: ChatGPT
-glide.keymaps.set("normal", "<leader>1", async ({ tab_id }) => {
+glide.keymaps.set("normal", "tw", async ({ tab_id }) => {
     const result = await glide.content.execute(
         async () => {
             const w = window as any;
