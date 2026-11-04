@@ -11,7 +11,7 @@
 [![Glide Browser](https://img.shields.io/badge/Glide-Browser-7C3AED?style=for-the-badge&logoColor=white)](https://glide-browser.app)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Config-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Built on Firefox](https://img.shields.io/badge/Built_on-Firefox-FF7139?style=for-the-badge&logo=firefoxbrowser&logoColor=white)](https://www.mozilla.org/firefox/)
-[![Lines](https://img.shields.io/badge/glide.ts-4%2C189_lines-A855F7?style=for-the-badge)](./glide.ts)
+[![Lines](https://img.shields.io/badge/glide.ts-4%2C299_lines-A855F7?style=for-the-badge)](./glide.ts)
 
 <br />
 
@@ -153,10 +153,14 @@ Caps Lock` to close windows you may want to remap the trigger to something easie
 A stash-and-retrieve system for text you want to keep close: snippets, addresses, error messages,
 half-written replies. An `m`-prefixed family of mappings saves text to a JSON file inside your Glide
 profile — deliberately outside the Git-backed config directory, and never sent anywhere. `Ctrl+m`
-saves a selection, `myy` saves the current line, `mdd` saves and deletes it. `Ctrl+,` pastes the
-newest entry, with the second and third a modifier away. `mo` and `mc` open an interactive, viewable
-menu to paste or copy any of the last 100 entries, and all reads and writes are serialized so rapid
-saves can't lose data.
+saves a selection, `myy` saves the current line, and `mdd` saves and deletes it. `Ctrl+,` pastes the
+newest entry, with the second and third a modifier away. `moc` opens the menu to copy an entry, `mop`
+pastes one, `mod` deletes entries one at a time while keeping the menu open until `Escape`, and `moo`
+opens the selected entry in a new tab. These menus work in Normal and Insert mode, including when the
+current page cannot be inspected. When `mop` cannot access an editable page field, it falls back to
+pasting through Firefox's URL bar. `moo` also uses the URL bar, letting Firefox resolve URLs, searches,
+and keyword bookmarks. Typing a number matches that displayed position while text matches remain
+available. All reads and writes are serialized so rapid saves can't lose data.
 
 ### Security and OSINT built into normal mode
 
@@ -527,14 +531,14 @@ internally, but you never type it.
 | `<C-,>` | Paste the newest stashed entry | [L3958](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3958) |
 | `<C-A-,>` | Paste the second-newest entry | [L3958](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3958) |
 | `<C-A-lt>` | Paste the third-newest entry | [L3958](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3958) |
-| `mo` | Open the interactive, viewable stash menu and paste an entry | [L3979](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3979) |
-| `mc` | Open the interactive, viewable stash menu and copy an entry | [L3983](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3983) |
-| `mdm` | Delete the newest entry | [L3965](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3965) |
-| `md1` … `md9` | Delete the N newest entries | [L3970](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3970) |
-| `mdac` | Clear the entire stash | [L3975](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3975) |
+| `moc` | normal / insert | Open the stash menu and copy the selected entry | (updated) |
+| `mop` | normal / insert | Open the stash menu and paste the selected entry (URL-bar fallback on restricted pages) | (updated) |
+| `mod` | normal / insert | Delete one selected entry; keep the refreshed menu open until Escape | (updated) |
+| `moo` | normal / insert | Open the selected entry in a new tab (browser resolves URL / search) | (updated) |
+| `mdm` | normal | Delete the newest entry | [L3965](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3965) |
+| `mdac` | normal | Clear the entire stash | [L3975](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L3975) |
 
-Capped at 100 entries, stored at `<profile>/glide-text-snippets.json`, with serialized reads and
-writes and schema validation that refuses to overwrite a malformed file.
+Typing a number matches the entry at that displayed position while retaining snippets whose text contains the query. The stash remains capped at 100 entries, stored at `<profile>/glide-text-snippets.json`, with serialized reads and writes and schema validation that refuses to overwrite a malformed file.
 
 </details>
 

@@ -3751,11 +3751,11 @@ const textSnippetPasteThirdKey = textSnippetPasteSymbol === ","
     ? "<C-A-lt>"
     : `<C-S-A-${textSnippetPasteSymbol}>`;
 const textSnippetDeleteNewestKey = `${textSnippetPrefix}dm`;
-const textSnippetDeleteCountKeys = Array.from({ length: 9 }, (_, i) =>
-    `${textSnippetPrefix}d${i + 1}`);
 const textSnippetDeleteAllKey = `${textSnippetPrefix}dac`;
-const textSnippetOpenKey = `${textSnippetPrefix}o`;
-const textSnippetCopyKey = `${textSnippetPrefix}c`;
+const textSnippetPasteKey = `${textSnippetPrefix}op`;
+const textSnippetCopyKey = `${textSnippetPrefix}oc`;
+const textSnippetDeleteKey = `${textSnippetPrefix}od`;
+const textSnippetNewTabKey = `${textSnippetPrefix}oo`;
 const textSnippetYankLineKey = `${textSnippetPrefix}yy`;
 const textSnippetDeleteLineKey = `${textSnippetPrefix}dd`;
 
@@ -3846,29 +3846,87 @@ async function textSnippetPaste(tab_id: number, text: string): Promise<void> {
     await glide.excmds.execute("mode_change insert");
 }
 
-async function textSnippetPicker(tab_id: number, copy: boolean): Promise<void> {
+type TextSnippetPickerAction = "paste" | "copy" | "open";
+type TextSnippetReturnMode = "normal" | "insert";
+
+// Keep text matches and numbered matches together. Typing "2" includes both
+// snippets containing that text and the entry whose displayed position is 2.
+// Exact number matches are preferred when both exist (they appear in list order
+// among all matches).
+function textSnippetMatches(text: string, index: number, input: string): boolean {
+    const query = input.trim().toLowerCase();
+    if (!query) return true;
+    if (/^\d+$/.test(query) && String(index + 1) === query) return true;
+    return text.toLowerCase().includes(query);
+}
+
+// Reuse the URL-bar workflow from `n`, letting Firefox resolve URLs, searches,
+// and keyword bookmarks with the user's existing browser configuration.
+async function textSnippetOpenInNewTab(text: string): Promise<void> {
+    const query = text.replace(/\s+/g, " ").trim();
+    if (!query) return;
+
+    await glide.excmds.execute("tab_new about:blank");
+    await new Promise(resolve => setTimeout(resolve, 100));
+    await glide.excmds.execute("mode_change insert");
+    await glide.keys.send("<C-l>");
+    await glide.keys.send(query);
+    await glide.keys.send("<Enter>");
+}
+
+async function textSnippetPicker(
+    tab_id: number,
+    action: TextSnippetPickerAction,
+    returnMode: TextSnippetReturnMode,
+): Promise<void> {
     const items = await textSnippetList();
     if (!items.length) throw new Error("No saved text snippets.");
-    if (!copy) {
-        const editable = await glide.content.execute(() => {
-            const active = document.activeElement;
-            return active instanceof HTMLInputElement ||
-                active instanceof HTMLTextAreaElement ||
-                (active instanceof HTMLElement && active.isContentEditable);
-        }, { tab_id });
-        if (!editable) throw new Error("Focus an editable field before opening the paste list.");
+
+    // Content access is optional. If an editable page field can be captured,
+    // restore it normally. Otherwise mop can still paste through the URL bar.
+    // This also lets the menus open on restricted pages (about:newtab, etc.).
+    let focus: SnippetFocus | null = null;
+    if (action === "copy") {
+        try {
+            focus = await rememberSnippetFocus(tab_id);
+        } catch {
+            // Browser-internal pages such as about:newtab reject content access.
+        }
+    } else if (action === "paste") {
+        try {
+            const editable = await glide.content.execute(() => {
+                const active = document.activeElement;
+                return active instanceof HTMLInputElement ||
+                    active instanceof HTMLTextAreaElement ||
+                    (active instanceof HTMLElement && active.isContentEditable);
+            }, { tab_id });
+            if (editable) focus = await rememberSnippetFocus(tab_id);
+        } catch {
+            // Browser-internal pages such as about:newtab reject content access.
+        }
     }
 
-    const focus = await rememberSnippetFocus(tab_id);
     let selected = false;
     const restore = async (text?: string) => {
         if ((await glide.tabs.active()).id !== tab_id) return;
-        await finishSnippetPreview(tab_id, focus, text);
-        if (text === undefined) await glide.excmds.execute("mode_change normal");
+        if (focus) {
+            await finishSnippetPreview(tab_id, focus, text).catch(() => {});
+            if (text === undefined) {
+                await glide.excmds.execute(`mode_change ${returnMode}`);
+            }
+        } else if (text !== undefined && action === "paste") {
+            // The URL bar is browser chrome, not page DOM. Use the system
+            // clipboard and Ctrl+L/Ctrl+V when no editable page target exists.
+            await navigator.clipboard.writeText(text);
+            await glide.excmds.execute("mode_change insert");
+            await glide.keys.send("<C-l>");
+            await glide.keys.send("<C-v>", { skip_mappings: true });
+        } else if (text === undefined) {
+            await glide.excmds.execute(`mode_change ${returnMode}`);
+        }
     };
     const onExit = () => {
         glide.autocmds.remove("CommandLineExit", onExit);
-        // The command line closes before executing its highlighted option.
         setTimeout(() => {
             if (!selected) void restore().catch(error => console.error("[text snippets]", error));
         }, 0);
@@ -3876,30 +3934,33 @@ async function textSnippetPicker(tab_id: number, copy: boolean): Promise<void> {
     glide.autocmds.create("CommandLineExit", onExit);
     try {
         await glide.commandline.show({
-            title: copy ? "Copy saved text" : "Paste saved text",
+            title: action === "copy"
+                ? "Copy saved text"
+                : action === "open"
+                    ? "Open saved text in new tab"
+                    : "Paste saved text",
             options: items.map((text, index) => {
                 const preview = text.replace(/\s+/g, " ").slice(0, 90);
-                const searchable = text.toLowerCase();
                 return {
                     label: `${index + 1}. ${preview}${text.length > 90 ? "…" : ""}`,
                     description: `${text.length} characters`,
-                    matches({ input }) {
-                        const query = input.trim().toLowerCase();
-                        return !query || searchable.includes(query) ||
-                            String(index + 1) === query;
+                    matches({ input }: { input: string }) {
+                        return textSnippetMatches(text, index, input);
                     },
                     execute() {
                         selected = true;
                         void (async () => {
-                            if ((await glide.tabs.active()).id !== tab_id) return;
-                            if (copy) {
+                            if ((await glide.tabs.active()).id !== tab_id && action !== "open") return;
+                            if (action === "copy") {
                                 try {
                                     await navigator.clipboard.writeText(text);
                                 } finally {
                                     await restore();
                                 }
-                            } else {
+                            } else if (action === "paste") {
                                 await restore(text);
+                            } else {
+                                await textSnippetOpenInNewTab(text);
                             }
                         })().catch(error => console.error("[text snippets]", error));
                     },
@@ -3909,6 +3970,52 @@ async function textSnippetPicker(tab_id: number, copy: boolean): Promise<void> {
     } catch (error) {
         glide.autocmds.remove("CommandLineExit", onExit);
         throw error;
+    }
+}
+
+// Delete one entry, then reopen with the refreshed list and numbering. Escape
+// closes commandline.show() without a selection and exits the loop.
+async function textSnippetDeletePicker(returnMode: TextSnippetReturnMode): Promise<void> {
+    while (true) {
+        const items = await textSnippetList();
+        let selected = false;
+        let deletion: Promise<void> | null = null;
+        const options = items.map((text, index) => {
+            const preview = text.replace(/\s+/g, " ").slice(0, 90);
+            return {
+                label: `${index + 1}. ${preview}${text.length > 90 ? "…" : ""}`,
+                description: `${text.length} characters`,
+                matches({ input }: { input: string }) {
+                    return textSnippetMatches(text, index, input);
+                },
+                execute() {
+                    selected = true;
+                    deletion = textSnippetChange(entries =>
+                        index < entries.length
+                            ? entries.filter((_, entryIndex) => entryIndex !== index)
+                            : null,
+                    );
+                },
+            };
+        });
+        if (!items.length) {
+            options.push({
+                label: "No saved text snippets",
+                description: "Press Escape to close",
+                matches: () => true,
+                execute() { selected = true; deletion = Promise.resolve(); },
+            });
+        }
+
+        await glide.commandline.show({
+            title: "Delete saved text",
+            options,
+        });
+        if (!selected || !deletion) {
+            await glide.excmds.execute(`mode_change ${returnMode}`);
+            return;
+        }
+        await deletion;
     }
 }
 
@@ -3959,31 +4066,37 @@ for (const [key, index] of [
     }, { description: `Paste saved text snippet ${index + 1} from newest` });
 }
 
+// Remove the old `mo` / `mc` menu mappings and md1–md9 bulk-delete mappings.
+// safeDel removes a prefix and its descendants, so do this before registering
+// the new `mo*` family below.
+safeDel("normal", `${textSnippetPrefix}o`);
+safeDel("normal", `${textSnippetPrefix}c`);
+for (let count = 1; count <= 9; count++) {
+    safeDel("normal", `${textSnippetPrefix}d${count}`);
+}
+
 glide.keymaps.set("normal", textSnippetDeleteNewestKey, async () => {
     await textSnippetChange(items => items.length ? items.slice(1) : null);
 }, { description: "Delete newest saved text snippet" });
-
-textSnippetDeleteCountKeys.forEach((key, index) => {
-    glide.keymaps.set("normal", key, async () => {
-        await textSnippetChange(items => items.length ? items.slice(index + 1) : null);
-    }, { description: `Delete ${index + 1} newest saved text snippets` });
-});
 
 glide.keymaps.set("normal", textSnippetDeleteAllKey, async () => {
     await textSnippetChange(items => items.length ? [] : null);
 }, { description: "Clear all saved text snippets" });
 
-glide.keymaps.set("normal", textSnippetOpenKey, async ({ tab_id }) => {
-    await textSnippetPicker(tab_id, false);
-}, { description: "Pick saved text to paste" });
-
-glide.keymaps.set("normal", textSnippetCopyKey, async ({ tab_id }) => {
-    await textSnippetPicker(tab_id, true);
-}, { description: "Pick saved text to copy to clipboard" });
-
-
-
-
+for (const mode of ["normal", "insert"] as const) {
+    glide.keymaps.set(mode, textSnippetCopyKey, async ({ tab_id }) => {
+        await textSnippetPicker(tab_id, "copy", mode);
+    }, { description: "Pick saved text to copy to clipboard" });
+    glide.keymaps.set(mode, textSnippetPasteKey, async ({ tab_id }) => {
+        await textSnippetPicker(tab_id, "paste", mode);
+    }, { description: "Pick saved text to paste" });
+    glide.keymaps.set(mode, textSnippetDeleteKey, async () => {
+        await textSnippetDeletePicker(mode);
+    }, { description: "Pick saved text to delete (menu stays open)" });
+    glide.keymaps.set(mode, textSnippetNewTabKey, async ({ tab_id }) => {
+        await textSnippetPicker(tab_id, "open", mode);
+    }, { description: "Open saved text in a new tab" });
+}
 
 //Background Processes
 
