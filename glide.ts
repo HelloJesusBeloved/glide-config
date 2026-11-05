@@ -3973,49 +3973,65 @@ async function textSnippetPicker(
     }
 }
 
-// Delete one entry, then reopen with the refreshed list and numbering. Escape
-// closes commandline.show() without a selection and exits the loop.
-async function textSnippetDeletePicker(returnMode: TextSnippetReturnMode): Promise<void> {
-    while (true) {
-        const items = await textSnippetList();
-        let selected = false;
-        let deletion: Promise<void> | null = null;
-        const options = items.map((text, index) => {
-            const preview = text.replace(/\s+/g, " ").slice(0, 90);
-            return {
-                label: `${index + 1}. ${preview}${text.length > 90 ? "…" : ""}`,
-                description: `${text.length} characters`,
-                matches({ input }: { input: string }) {
-                    return textSnippetMatches(text, index, input);
-                },
-                execute() {
-                    selected = true;
-                    deletion = textSnippetChange(entries =>
-                        index < entries.length
-                            ? entries.filter((_, entryIndex) => entryIndex !== index)
-                            : null,
-                    );
-                },
-            };
-        });
-        if (!items.length) {
-            options.push({
+// Delete one entry, then reopen the menu with the refreshed list.
+// Uses the same commandline.show pattern as the other pickers so Tab/arrows
+// and Enter work normally. Escape / unfocus exits without reopening.
+async function textSnippetDeletePicker(tab_id: number): Promise<void> {
+    const items = await textSnippetList();
+    if (!items.length) {
+        await glide.commandline.show({
+            title: "Delete saved text",
+            options: [{
                 label: "No saved text snippets",
                 description: "Press Escape to close",
                 matches: () => true,
-                execute() { selected = true; deletion = Promise.resolve(); },
-            });
-        }
+                execute() {},
+            }],
+        });
+        return;
+    }
 
+    let selected = false;
+    const onExit = () => {
+        glide.autocmds.remove("CommandLineExit", onExit);
+        if (!selected) {
+            void glide.excmds.execute("mode_change normal").catch(() => {});
+        }
+    };
+    glide.autocmds.create("CommandLineExit", onExit);
+
+    try {
         await glide.commandline.show({
             title: "Delete saved text",
-            options,
+            options: items.map((text, index) => {
+                const preview = text.replace(/\s+/g, " ").slice(0, 90);
+                return {
+                    label: `${index + 1}. ${preview}${text.length > 90 ? "…" : ""}`,
+                    description: `${text.length} characters`,
+                    matches({ input }: { input: string }) {
+                        return textSnippetMatches(text, index, input);
+                    },
+                    execute() {
+                        selected = true;
+                        void (async () => {
+                            await textSnippetChange(entries => {
+                                if (index >= entries.length) return null;
+                                const next = [...entries];
+                                next.splice(index, 1);
+                                return next;
+                            });
+                            setTimeout(() => {
+                                void textSnippetDeletePicker(tab_id).catch(err =>
+                                    console.error("[text snippets]", err));
+                            }, 0);
+                        })().catch(err => console.error("[text snippets]", err));
+                    },
+                };
+            }),
         });
-        if (!selected || !deletion) {
-            await glide.excmds.execute(`mode_change ${returnMode}`);
-            return;
-        }
-        await deletion;
+    } catch (error) {
+        glide.autocmds.remove("CommandLineExit", onExit);
+        throw error;
     }
 }
 
@@ -4083,20 +4099,20 @@ glide.keymaps.set("normal", textSnippetDeleteAllKey, async () => {
     await textSnippetChange(items => items.length ? [] : null);
 }, { description: "Clear all saved text snippets" });
 
-for (const mode of ["normal", "insert"] as const) {
-    glide.keymaps.set(mode, textSnippetCopyKey, async ({ tab_id }) => {
-        await textSnippetPicker(tab_id, "copy", mode);
-    }, { description: "Pick saved text to copy to clipboard" });
-    glide.keymaps.set(mode, textSnippetPasteKey, async ({ tab_id }) => {
-        await textSnippetPicker(tab_id, "paste", mode);
-    }, { description: "Pick saved text to paste" });
-    glide.keymaps.set(mode, textSnippetDeleteKey, async () => {
-        await textSnippetDeletePicker(mode);
-    }, { description: "Pick saved text to delete (menu stays open)" });
-    glide.keymaps.set(mode, textSnippetNewTabKey, async ({ tab_id }) => {
-        await textSnippetPicker(tab_id, "open", mode);
-    }, { description: "Open saved text in a new tab" });
-}
+// Register only in normal mode. Multi-key sequences in insert mode would
+// intercept ordinary typing (e.g. typing "mod" would open the delete menu).
+glide.keymaps.set("normal", textSnippetCopyKey, async ({ tab_id }) => {
+    await textSnippetPicker(tab_id, "copy", "normal");
+}, { description: "Pick saved text to copy to clipboard" });
+glide.keymaps.set("normal", textSnippetPasteKey, async ({ tab_id }) => {
+    await textSnippetPicker(tab_id, "paste", "normal");
+}, { description: "Pick saved text to paste" });
+glide.keymaps.set("normal", textSnippetDeleteKey, async ({ tab_id }) => {
+    await textSnippetDeletePicker(tab_id);
+}, { description: "Pick saved text to delete (menu stays open)" });
+glide.keymaps.set("normal", textSnippetNewTabKey, async ({ tab_id }) => {
+    await textSnippetPicker(tab_id, "open", "normal");
+}, { description: "Open saved text in a new tab" });
 
 //Background Processes
 
