@@ -2040,9 +2040,9 @@ glide.keymaps.set("normal", "ys", () => {
 
 //8. Open the copied url in virustotal.com
 //Source: ChatGPT (hardening: Me (claude-fable-5.1-max))
-safeDel("normal", "1u");
+safeDel("normal", "1vo");
 
-glide.keymaps.set("normal", "1u", async () => {
+glide.keymaps.set("normal", "1vo", async () => {
     const url = await readClipboardURL();
 
     // Open VirusTotal. The URL is a query *parameter*, so it has to be
@@ -2057,9 +2057,9 @@ glide.keymaps.set("normal", "1u", async () => {
 
 //9. Open clipboard contents in a new tab
 //Source: ChatGPT (hardening: Me (claude-fable-5.1-max))
-safeDel("normal", "1o");
+safeDel("normal", "yo");
 
-glide.keymaps.set("normal", "1o", async () => {
+glide.keymaps.set("normal", "yo", async () => {
     const url = await readClipboardURL();
 
     await browser.tabs.create({
