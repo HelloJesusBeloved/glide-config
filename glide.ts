@@ -1839,6 +1839,129 @@ glide.keymaps.set("normal", "<leader>N", async ({ tab_id }) => {
 });
 
 
+//L. Tab shortcuts. One mapping on "3", not a key per letter.
+// Registering 3a/33a made Which-Key list every key, and safeDel("33")
+// (which deletes every mapping that starts with its argument) wiped the
+// bind sequences, so 33j fell through as a count plus j.
+// "3" then a key jumps. "3" then "3" then a key binds. The extra keys are
+// read with keys.next_str(), which swallows them so they do not run as
+// normal-mode commands. Escape cancels. Bindings are key to URL in
+// <profile>/glide-tab-shortcuts.json. Jump picks the most recently used
+// open tab with that exact URL, or opens the URL if none are open.
+// The key "3" can be bound with 333, but 33 is the bind prefix, so there
+// is no jump chord for the key "3".
+//Source: Grok
+
+const tabShortcutFile = glide.path.join(
+    glide.path.profile_dir,
+    "glide-tab-shortcuts.json",
+);
+let tabShortcutCache: Promise<Record<string, string>> | null = null;
+let tabShortcutWrites: Promise<void> = Promise.resolve();
+
+async function tabShortcutRead(): Promise<Record<string, string>> {
+    if (!tabShortcutCache) {
+        const pending = (async () => {
+            if (!(await glide.fs.exists(tabShortcutFile))) return {};
+            const raw = await glide.fs.read(tabShortcutFile, "utf8");
+            let data: unknown;
+            try {
+                data = JSON.parse(raw);
+            } catch {
+                throw new Error("Tab shortcut file is malformed; nothing was overwritten.");
+            }
+            if (!data || typeof data !== "object" ||
+                (data as { version?: unknown }).version !== 1 ||
+                typeof (data as { bindings?: unknown }).bindings !== "object" ||
+                (data as { bindings: unknown }).bindings === null) {
+                throw new Error("Tab shortcut file has an unknown format; nothing was overwritten.");
+            }
+            const bindings = (data as { bindings: Record<string, unknown> }).bindings;
+            const clean: Record<string, string> = {};
+            for (const [key, url] of Object.entries(bindings)) {
+                if (typeof url === "string" && url) clean[key] = url;
+            }
+            return clean;
+        })();
+        tabShortcutCache = pending;
+        void pending.catch(() => {
+            if (tabShortcutCache === pending) tabShortcutCache = null;
+        });
+    }
+    return await tabShortcutCache;
+}
+
+async function tabShortcutList(): Promise<Record<string, string>> {
+    await tabShortcutWrites;
+    return { ...await tabShortcutRead() };
+}
+
+function tabShortcutChange(update: (bindings: Record<string, string>) => Record<string, string> | null): Promise<void> {
+    const task = tabShortcutWrites.then(async () => {
+        const previous = await tabShortcutRead();
+        const next = update({ ...previous });
+        if (!next) return;
+        await glide.fs.write(tabShortcutFile, JSON.stringify({ version: 1, bindings: next }, null, 2));
+        tabShortcutCache = Promise.resolve(next);
+    });
+    tabShortcutWrites = task.catch(() => {});
+    return task;
+}
+
+// null means Escape (cancel). Anything else must be one typed character.
+function tabShortcutKey(raw: string): string | null {
+    if (raw === "<Esc>" || raw === "<Escape>" || raw === "<C-[>") return null;
+    if (raw.length !== 1) throw new Error("Type a single key.");
+    return raw.toLowerCase();
+}
+
+async function tabShortcutBind(tab_id: number, key: string): Promise<void> {
+    const tab = await browser.tabs.get(tab_id);
+    const url = tab.url;
+    if (!url || url.startsWith("about:")) {
+        throw new Error("This tab has no bindable URL.");
+    }
+    await tabShortcutChange(bindings => {
+        bindings[key] = url;
+        return bindings;
+    });
+}
+
+async function tabShortcutJump(key: string): Promise<void> {
+    const url = (await tabShortcutList())[key];
+    if (!url) throw new Error(`No tab bound to ${key}.`);
+
+    const tabs = await browser.tabs.query({});
+    const matches = tabs.filter(tab => tab.url === url && tab.id !== undefined);
+    if (matches.length) {
+        const best = matches.reduce((a, b) =>
+            (b.lastAccessed ?? 0) > (a.lastAccessed ?? 0) ? b : a,
+        );
+        await browser.tabs.update(best.id!, { active: true });
+        if (best.windowId !== undefined) {
+            await browser.windows.update(best.windowId, { focused: true });
+        }
+        return;
+    }
+    await browser.tabs.create({ url, active: true });
+}
+
+// One mapping. Do not also map "33" or "3" + letter: "33" would complete
+// before the bind key, and safeDel("33") deletes every "33…" mapping.
+safeDel("normal", "3");
+glide.keymaps.set("normal", "3", async ({ tab_id }) => {
+    const first = tabShortcutKey(await glide.keys.next_str());
+    if (!first) return;
+    if (first === "3") {
+        const bindKey = tabShortcutKey(await glide.keys.next_str());
+        if (!bindKey) return;
+        await tabShortcutBind(tab_id, bindKey);
+        return;
+    }
+    await tabShortcutJump(first);
+}, { description: "Tab shortcut: 3+key jumps, 33+key binds the current tab" });
+
+
 //6. Search in a text field containing someone's first and last name for there full name, just their first and just their last
 //Source: Me
 glide.keymaps.set("normal", "2n", async () => {
