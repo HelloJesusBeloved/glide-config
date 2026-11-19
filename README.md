@@ -478,15 +478,16 @@ Then reload from inside Glide with `:config_reload` or `<leader>c` (this config'
 | `tf` | Hint tabs, tab groups and the new-tab button | [L1792](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L1792) |
 | `<leader>n` | Open a new tab | [L2102](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L2102) |
 | `<leader>N` | Pick a Firefox container and open a new tab in it | [L1804](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L1804) |
-| `3` + key | Jump to the tab bound to that key, or open its URL if none are open | [L1952](https://github.com/HelloJesusBeloved/glide-config/blob/HEAD/glide.ts#L1952) |
-| `33` + key | Bind that key to the current tab's URL (silent overwrite) | [L1952](https://github.com/HelloJesusBeloved/glide-config/blob/HEAD/glide.ts#L1952) |
+| `3` + key | Jump to the tab bound to that key, or open its URL if none are open | [L1967](https://github.com/HelloJesusBeloved/glide-config/blob/HEAD/glide.ts#L1967) |
+| `33` + key | Bind that key to the current tab's site root (silent overwrite) | [L1967](https://github.com/HelloJesusBeloved/glide-config/blob/HEAD/glide.ts#L1967) |
 | `<leader>p` | Toggle pin on current tab | [L2088](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L2088) |
 | `<leader>1` | Toggle screen wake lock for the current tab | [L968](https://github.com/HelloJesusBeloved/glide-config/blob/c3883a1/glide.ts#L968) |
 
 `3` then a key jumps. `33` then a key binds the current tab. Both are silent: the extra key is
 read directly, so Which-Key does not list every letter and the key is not passed through as a
-normal-mode command. Bindings are stored in `<profile>/glide-tab-shortcuts.json`. A jump switches
-to the most recently used open tab with that exact URL, or opens the URL in a new tab. Unbound
+normal-mode command. Bindings are stored in `<profile>/glide-tab-shortcuts.json` as the site root (`gU`: scheme,
+host, and port, path `/`). A jump switches to the most recently used open tab on that root, or
+opens the root in a new tab. Older full-URL bindings still match by that root. Unbound
 keys throw a Glide error. Escape cancels. The key `3` can be bound with `333`, but `33` is the
 bind prefix, so that key has no jump chord.
 

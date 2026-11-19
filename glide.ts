@@ -1845,9 +1845,10 @@ glide.keymaps.set("normal", "<leader>N", async ({ tab_id }) => {
 // bind sequences, so 33j fell through as a count plus j.
 // "3" then a key jumps. "3" then "3" then a key binds. The extra keys are
 // read with keys.next_str(), which swallows them so they do not run as
-// normal-mode commands. Escape cancels. Bindings are key to URL in
-// <profile>/glide-tab-shortcuts.json. Jump picks the most recently used
-// open tab with that exact URL, or opens the URL if none are open.
+// normal-mode commands. Escape cancels. Bindings are key to site root in
+// <profile>/glide-tab-shortcuts.json (the same URL gU navigates to:
+// scheme, host, and port, path reset to "/"). Jump picks the most recently
+// used open tab on that root, or opens the root if none are open.
 // The key "3" can be bound with 333, but 33 is the bind prefix, so there
 // is no jump chord for the key "3".
 //Source: Grok
@@ -1915,24 +1916,38 @@ function tabShortcutKey(raw: string): string | null {
     return raw.toLowerCase();
 }
 
+// Same root gU uses: keep scheme, host, and port, drop path, query, and hash.
+function tabShortcutRoot(url: string): string | null {
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+        parsed.pathname = "/";
+        parsed.search = "";
+        parsed.hash = "";
+        return parsed.toString();
+    } catch {
+        return null;
+    }
+}
+
 async function tabShortcutBind(tab_id: number, key: string): Promise<void> {
     const tab = await browser.tabs.get(tab_id);
-    const url = tab.url;
-    if (!url || url.startsWith("about:")) {
-        throw new Error("This tab has no bindable URL.");
-    }
+    const root = tab.url ? tabShortcutRoot(tab.url) : null;
+    if (!root) throw new Error("This tab has no bindable URL.");
     await tabShortcutChange(bindings => {
-        bindings[key] = url;
+        bindings[key] = root;
         return bindings;
     });
 }
 
 async function tabShortcutJump(key: string): Promise<void> {
-    const url = (await tabShortcutList())[key];
-    if (!url) throw new Error(`No tab bound to ${key}.`);
+    const stored = (await tabShortcutList())[key];
+    if (!stored) throw new Error(`No tab bound to ${key}.`);
+    const root = tabShortcutRoot(stored) ?? stored;
 
     const tabs = await browser.tabs.query({});
-    const matches = tabs.filter(tab => tab.url === url && tab.id !== undefined);
+    const matches = tabs.filter(tab =>
+        tab.id !== undefined && !!tab.url && tabShortcutRoot(tab.url) === root);
     if (matches.length) {
         const best = matches.reduce((a, b) =>
             (b.lastAccessed ?? 0) > (a.lastAccessed ?? 0) ? b : a,
@@ -1943,7 +1958,7 @@ async function tabShortcutJump(key: string): Promise<void> {
         }
         return;
     }
-    await browser.tabs.create({ url, active: true });
+    await browser.tabs.create({ url: root, active: true });
 }
 
 // One mapping. Do not also map "33" or "3" + letter: "33" would complete
